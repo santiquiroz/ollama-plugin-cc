@@ -1,0 +1,80 @@
+---
+description: Check whether Ollama is installed, running, and has the context-capped model this plugin delegates to — build it if missing
+argument-hint: "[base model tag to use, e.g. devstral:24b]"
+allowed-tools: Bash(ollama:*), AskUserQuestion
+---
+
+Run these checks in order and report a single consolidated status at the end.
+
+Step 1 — Installed?
+
+Run:
+
+```bash
+ollama --version
+```
+
+- If the command is not found: report the install docs (https://ollama.com/download) for the user's OS and stop.
+
+Step 2 — Service reachable?
+
+Run:
+
+```bash
+ollama list
+```
+
+- If this errors with a connection failure (not just "no models"), the Ollama background service isn't running. Tell the user to start it (the Ollama desktop app starts it automatically on Windows/macOS; on Linux, `systemctl start ollama` or `ollama serve` in a separate terminal) and stop here.
+
+Step 3 — Context-capped model present?
+
+This plugin always delegates to a tag named `ollama-rescue-mechanical` — never to a raw pulled tag directly. Reason: most current local coding models default to a very large native context window (100K-256K+ tokens), and Ollama reserves KV-cache proportional to that context by default. On a consumer GPU this overflows VRAM and forces heavy CPU offload even for a short one-line completion, making every delegated call far slower than it needs to be. Capping the context via a derivative Modelfile fixes this.
+
+Check:
+
+```bash
+ollama list
+```
+
+- If `ollama-rescue-mechanical` is already listed, skip to Step 4.
+- If not present, use `AskUserQuestion` once to ask which base model to build it from. Offer these options (verified working on Ollama's library as of this writing — check `ollama.com/library` or `ollama search <name>` for anything newer before committing, this landscape moves fast):
+  - **`devstral:24b`** (Mistral, ~14GB, dense — most predictable latency, tuned specifically for reading multi-file codebases and writing patches. Recommended default for pure mechanical tasks.)
+  - **`qwen3.6:27b`** (Alibaba, ~17GB, vision-capable — use if delegated tasks sometimes reference an image or screenshot.)
+  - A **custom tag** the user names (any model already pulled or pullable via `ollama pull`).
+- If the argument `$ARGUMENTS` already names a base tag, skip the question and use that directly.
+- Pull the chosen base tag if not already present: `ollama pull <base-tag>`.
+- Build the derivative model:
+
+```bash
+cat > /tmp/ollama-rescue-mechanical.Modelfile <<'EOF'
+FROM <base-tag>
+PARAMETER num_ctx 32768
+EOF
+ollama create ollama-rescue-mechanical -f /tmp/ollama-rescue-mechanical.Modelfile
+```
+
+  32768 is a reasonable default for mechanical tasks (enough for a handful of files of context without ballooning memory). A user who wants a different cap can rerun this step with a different `PARAMETER num_ctx` value.
+
+Step 4 — Smoke test
+
+Run:
+
+```bash
+ollama run ollama-rescue-mechanical "Reply with exactly one word: ready"
+```
+
+- Any coherent non-empty response (including a `Thinking...` preamble followed by real content, which some models emit) counts as working. An empty response or a hard error means something is wrong with the built model — rerun Step 3.
+
+Step 5 — Report GPU/CPU offload
+
+While the model is still warm (within ~5 minutes of the smoke test), run:
+
+```bash
+ollama ps
+```
+
+- Report the `PROCESSOR` column (e.g. `77%/23% GPU/CPU`) so the user knows how much of the model is GPU-resident. A model spilling heavily to CPU (well under 50% GPU) will feel slow — if so, mention that a smaller base model or a shorter `num_ctx` cap would help, or that the base model may simply be too large for the available VRAM.
+
+Step 6 — Consolidated report
+
+Summarize in one short block: install state, service state, `ollama-rescue-mechanical` present (and which base model it was built from), smoke-test result, and the GPU/CPU split from Step 5.

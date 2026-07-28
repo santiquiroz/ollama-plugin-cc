@@ -1,0 +1,11 @@
+{
+  "name": "ollama",
+  "version": "0.1.0",
+  "description": "Delegate mechanical coding tasks from Codex CLI to a local Ollama model.",
+  "author": {
+    "name": "Santiago Quiroz Upegui"
+  },
+  "repository": "https://github.com/santiquiroz/ollama-plugin-cc",
+  "license": "MIT",
+  "skills": "./skills/"
+}
