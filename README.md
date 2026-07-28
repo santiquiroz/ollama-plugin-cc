@@ -117,18 +117,39 @@ None of these need to be the model you use for interactive coding elsewhere
 — this plugin's use case is narrow (mechanical, zero-domain-context), so a
 smaller/faster model than your daily driver is often the better fit.
 
+## Set expectations on speed, not just capability
+
+On modest consumer GPUs, sustained generation for a real (non-trivial) task
+has been observed well under 5 tok/s — a full file or test class can
+genuinely take several minutes, not seconds. The `ollama-rescue` agent and
+skill use a 10+ minute timeout for anything beyond a one-line snippet for
+exactly this reason. This is still a net win over doing the work inline —
+launch it in the background and keep working, per
+[docs/delegation-guide.md](docs/delegation-guide.md) — but don't expect
+"generate a full xUnit test file" to come back in the same few seconds a
+one-line completion does.
+
 ## Safety model
 
-Unlike an agentic CLI delegate, `ollama run` is a **pure text-completion
-call** — it has no filesystem or git access and cannot execute anything on
-its own. There is no allow/deny flag set to configure, because there's
-nothing for the model to sandbox: it returns text, and Claude (the caller)
-applies it via its own Edit/Write tools after reviewing it.
+Unlike an agentic CLI delegate, calling Ollama's HTTP API is a **pure
+text-completion request** — it has no filesystem or git access and cannot
+execute anything on its own. There is no allow/deny flag set to configure,
+because there's nothing for the model to sandbox: it returns text, and
+Claude (the caller) applies it via its own Edit/Write tools after reviewing
+it. (The agent and skill call the API directly rather than the `ollama run`
+CLI — see [Known issues](#known-issues-this-plugin-works-around) below for
+why.)
 
 That review step matters more here than with a paid delegate: local models
 in this size class are more prone to subtle mistakes than a frontier cloud
-model, and unlike an agentic CLI's already-applied diff, nothing here has
-been vetted by anything except a much smaller model.
+model — including inventing a plausible-looking but nonexistent API when
+asked to reuse something from your existing codebase it was never actually
+shown (confirmed in practice) — and unlike an agentic CLI's already-applied
+diff, nothing here has been vetted by anything except a much smaller model.
+For any task that touches an existing method/API surface, paste the real
+signature into the task text rather than trusting the model to already know
+it, and check that any referenced symbols in the output actually exist
+before applying it.
 
 ## Known issues this plugin works around
 
@@ -136,6 +157,7 @@ been vetted by anything except a much smaller model.
 |---|---|
 | Native-context VRAM blowup — most models default to a huge context window that overflows consumer VRAM and forces heavy CPU offload | `/ollama:setup` always builds a context-capped derivative tag (`PARAMETER num_ctx 32768` by default) and the agent/skill only ever call that tag |
 | Runaway reasoning trace on hybrid-thinking models — generation never converges, looks exactly like a hang | `/ollama:setup` also caps `PARAMETER num_predict 4096` by default, so a stuck generation hard-stops instead of running for hours |
+| Terminal control codes corrupting output — `ollama run` is an interactive-terminal tool and can leave ANSI/TTY escape sequences mixed into stdout even when not attached to a real terminal (confirmed in practice: real code output came back interleaved with escape codes, needing a manual cleanup pass) | The agent and skill call Ollama's HTTP API (`curl .../api/generate`) directly instead of the `ollama run` CLI, returning clean JSON with no terminal artifacts |
 
 ## Concurrency
 

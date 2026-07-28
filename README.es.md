@@ -123,19 +123,40 @@ interactivamente en otro lado — el caso de uso de este plugin es acotado
 (mecánico, sin contexto de dominio), así que un modelo más chico/rápido que
 tu driver diario suele ser mejor opción.
 
+## Expectativas de velocidad, no solo de capacidad
+
+En GPUs de consumo modestas, la generación sostenida para una tarea real (no
+trivial) se observó bien por debajo de 5 tok/s — un archivo completo o una
+clase de test puede tardar varios minutos, no segundos. El agente y la skill
+`ollama-rescue` usan un timeout de 10+ minutos para todo lo que no sea un
+snippet de una línea, justamente por esto. Sigue siendo una ganancia neta
+frente a hacerlo inline — lanzalo en background y seguí trabajando, según
+[docs/delegation-guide.md](docs/delegation-guide.md) — pero no esperes que
+"generá un archivo completo de tests xUnit" vuelva en los mismos segundos que
+una completación de una línea.
+
 ## Modelo de seguridad
 
-A diferencia de un delegado CLI agéntico, `ollama run` es una **llamada de
-completación de texto pura** — no tiene acceso a filesystem ni a git y no
-puede ejecutar nada por su cuenta. No hay un conjunto de flags allow/deny que
-configurar, porque no hay nada que el modelo pueda hacer más allá de devolver
-texto: Claude (quien llama) lo aplica con sus propias herramientas Edit/Write
-después de revisarlo.
+A diferencia de un delegado CLI agéntico, llamar a la API HTTP de Ollama es
+una **solicitud de completación de texto pura** — no tiene acceso a
+filesystem ni a git y no puede ejecutar nada por su cuenta. No hay un
+conjunto de flags allow/deny que configurar, porque no hay nada que el
+modelo pueda hacer más allá de devolver texto: Claude (quien llama) lo aplica
+con sus propias herramientas Edit/Write después de revisarlo. (El agente y
+la skill llaman directo a la API en vez del CLI `ollama run` — ver
+[Problemas conocidos](#problemas-conocidos-que-este-plugin-mitiga) abajo para
+saber por qué.)
 
 Ese paso de revisión importa más acá que con un delegado de pago: los
 modelos locales de este tamaño son más propensos a errores sutiles que un
-modelo frontera en la nube, y a diferencia del diff ya aplicado de un CLI
-agéntico, acá nada fue validado por nada más que un modelo mucho más chico.
+modelo frontera en la nube — incluyendo inventar una API que suena
+plausible pero no existe, cuando se le pide reusar algo de tu código
+existente que nunca vio realmente (confirmado en la práctica) — y a
+diferencia del diff ya aplicado de un CLI agéntico, acá nada fue validado
+por nada más que un modelo mucho más chico. Para cualquier tarea que toque
+una API o método existente, pegá la firma real en el texto de la tarea en
+vez de confiar en que el modelo ya la conoce, y verificá que los símbolos
+referenciados en la salida existan de verdad antes de aplicarla.
 
 ## Problemas conocidos que este plugin mitiga
 
@@ -143,6 +164,7 @@ agéntico, acá nada fue validado por nada más que un modelo mucho más chico.
 |---|---|
 | Desborde de VRAM por contexto nativo — la mayoría de los modelos traen por defecto una ventana de contexto enorme que desborda la VRAM de consumo y fuerza offload pesado a CPU | `/ollama:setup` siempre construye un tag derivado con contexto acotado (`PARAMETER num_ctx 32768` por defecto) y el agente/skill solo llaman a ese tag |
 | Traza de razonamiento descontrolada en modelos "thinking" — la generación nunca converge, se ve exactamente igual a un cuelgue | `/ollama:setup` también acota `PARAMETER num_predict 4096` por defecto, así una generación trabada corta en vez de durar horas |
+| Códigos de control de terminal corrompiendo la salida — `ollama run` es una herramienta de terminal interactiva y puede meter secuencias de escape ANSI/TTY mezcladas en el stdout incluso sin estar conectado a una terminal real (confirmado en la práctica: código real volvió intercalado con códigos de escape, necesitando limpieza manual) | El agente y la skill llaman a la API HTTP de Ollama (`curl .../api/generate`) en vez del CLI `ollama run`, devolviendo JSON limpio sin artefactos de terminal |
 
 ## Concurrencia
 

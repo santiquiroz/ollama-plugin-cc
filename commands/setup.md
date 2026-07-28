@@ -58,13 +58,16 @@ ollama create ollama-rescue-mechanical -f /tmp/ollama-rescue-mechanical.Modelfil
 
 Step 4 — Smoke test
 
-Run:
+Run against the HTTP API directly (this is also how `ollama-rescue` itself calls the model — see below for why):
 
 ```bash
-ollama run ollama-rescue-mechanical "Reply with exactly one word: ready"
+curl -s http://localhost:11434/api/generate \
+  -d '{"model":"ollama-rescue-mechanical","prompt":"Reply with exactly one word: ready","stream":false}' \
+  | jq -r '.response'
 ```
 
-- Any coherent non-empty response (including a `Thinking...` preamble followed by real content, which some models emit) counts as working. An empty response or a hard error means something is wrong with the built model — rerun Step 3.
+- Any coherent non-empty response (including a reasoning preamble followed by real content, which some models emit) counts as working. An empty response or a hard error means something is wrong with the built model — rerun Step 3.
+- If `curl`/`jq` aren't available, `ollama run ollama-rescue-mechanical "Reply with exactly one word: ready"` also works as a one-off manual check, but note that `ollama run` is an interactive-terminal tool and can leave ANSI/TTY control codes mixed into output on real tasks — the agent and skill in this plugin always use the API instead, never the CLI, to avoid that.
 
 Step 5 — Report GPU/CPU offload
 
