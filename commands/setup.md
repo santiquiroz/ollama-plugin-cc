@@ -49,11 +49,12 @@ ollama list
 cat > /tmp/ollama-rescue-mechanical.Modelfile <<'EOF'
 FROM <base-tag>
 PARAMETER num_ctx 32768
+PARAMETER num_predict 4096
 EOF
 ollama create ollama-rescue-mechanical -f /tmp/ollama-rescue-mechanical.Modelfile
 ```
 
-  32768 is a reasonable default for mechanical tasks (enough for a handful of files of context without ballooning memory). A user who wants a different cap can rerun this step with a different `PARAMETER num_ctx` value.
+  32768 is a reasonable default for mechanical tasks (enough for a handful of files of context without ballooning memory). `num_predict` caps the OUTPUT length — without it, a hybrid-reasoning ("thinking") model can occasionally get stuck rambling in its reasoning trace and never converge on an answer, which looks exactly like a hang (confirmed in practice: a Qwen3.6-class model logged 1800+ decoded tokens and climbing, at under 4 tok/s, on a single never-completing request). Capping output length turns "may never finish" into "finishes or hard-stops in a few minutes." A user who wants different caps can rerun this step with different `PARAMETER` values.
 
 Step 4 — Smoke test
 

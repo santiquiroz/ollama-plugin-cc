@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 — 2026-07-28
+
+- Fix: `/ollama:setup` now also caps `PARAMETER num_predict 4096` on the
+  `-mechanical` derivative model, not just `num_ctx`. Without an output cap,
+  a hybrid-reasoning ("thinking") model can occasionally never converge on
+  an answer — confirmed in practice with a Qwen3.6-class model logging
+  1800+ decoded tokens and climbing, at under 4 tok/s, on a single request
+  that never completed. This looked exactly like a hang and could run for
+  hours; now a stuck generation hard-stops in a few minutes instead.
+- Docs updated (README, README.es, agent, skill) to recommend a
+  non-reasoning base model (e.g. `devstral:24b`) for agentic/tool-calling
+  use specifically, since the reasoning trace is what tends to run away.
+
 ## 0.1.0 — 2026-07-27
 
 Initial release.

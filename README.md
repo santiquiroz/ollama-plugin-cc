@@ -67,7 +67,7 @@ split, the parallel pattern, WIP caps, concurrency on one GPU, and the
 availability fallback chain — live in
 [docs/delegation-guide.md](docs/delegation-guide.md).
 
-## Why the context cap
+## Why the context cap (and the output cap)
 
 Most current local coding models default to a large native context window
 (100K-256K+ tokens). Ollama reserves KV-cache proportional to that context
@@ -81,10 +81,23 @@ than a few files of context).
 ```
 FROM <your chosen base model>
 PARAMETER num_ctx 32768
+PARAMETER num_predict 4096
 ```
 
 ...and tagging the result `ollama-rescue-mechanical`. This plugin's agent and
 skill only ever call that tag, never a raw pulled one.
+
+`num_predict` caps the OUTPUT length, and it matters for a different reason
+than `num_ctx`: hybrid-reasoning ("thinking") models can occasionally get
+stuck rambling in their reasoning trace and never converge on an answer —
+confirmed in practice with a Qwen3.6-class model logging 1800+ decoded
+tokens and climbing, at under 4 tok/s, on a single request that never
+completed. Without an output cap that looks exactly like a hang and can run
+for hours; with it, a stuck generation hard-stops in a few minutes instead of
+never. If your delegated tasks are agentic/tool-calling (not just this
+plugin's one-shot forwarder), also prefer a non-reasoning base model
+(`devstral:24b` doesn't have a visible "thinking" mode; `qwen3.6:27b` does) —
+the reasoning trace is exactly what tends to run away.
 
 ## Choosing a model
 
@@ -95,8 +108,8 @@ landscape moves fast):
 
 | Model | Approx. size | Notes |
 |---|---|---|
-| `devstral:24b` | ~14GB | Dense, most predictable latency, tuned specifically for reading multi-file codebases and writing patches. Recommended default for this plugin's mechanical-only use case. |
-| `qwen3.6:27b` | ~17GB | Vision-capable — useful if some delegated tasks reference an image or screenshot. |
+| `devstral:24b` | ~14GB | Dense, most predictable latency, no visible "thinking" mode, tuned specifically for reading multi-file codebases and writing patches. Recommended default for this plugin's mechanical-only use case, and the safer pick for agentic/tool-calling use in general. |
+| `qwen3.6:27b` | ~17GB | Vision-capable — useful if some delegated tasks reference an image or screenshot. Hybrid-reasoning model; cap `num_predict` if you use it, see above. |
 | `qwen3-coder:30b` | ~18GB | MoE, widely field-tested for agentic coding tool-calling. |
 | `glm-4.7-flash:q4_K_M` | ~19GB | MoE, described by its authors as the strongest model in the 30B class. Requires a recent Ollama version. |
 
@@ -117,11 +130,12 @@ in this size class are more prone to subtle mistakes than a frontier cloud
 model, and unlike an agentic CLI's already-applied diff, nothing here has
 been vetted by anything except a much smaller model.
 
-## Known issue this plugin works around
+## Known issues this plugin works around
 
 | Issue | Workaround baked in |
 |---|---|
 | Native-context VRAM blowup — most models default to a huge context window that overflows consumer VRAM and forces heavy CPU offload | `/ollama:setup` always builds a context-capped derivative tag (`PARAMETER num_ctx 32768` by default) and the agent/skill only ever call that tag |
+| Runaway reasoning trace on hybrid-thinking models — generation never converges, looks exactly like a hang | `/ollama:setup` also caps `PARAMETER num_predict 4096` by default, so a stuck generation hard-stops instead of running for hours |
 
 ## Concurrency
 

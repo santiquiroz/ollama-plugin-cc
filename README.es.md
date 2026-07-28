@@ -70,7 +70,7 @@ pago/delegado de razonamiento, el patrón paralelo, límites de WIP,
 concurrencia en una sola GPU y la cadena de fallback de disponibilidad —
 están en [docs/delegation-guide.md](docs/delegation-guide.md).
 
-## Por qué el límite de contexto
+## Por qué el límite de contexto (y el límite de salida)
 
 La mayoría de los modelos de código locales actuales traen por defecto una
 ventana de contexto nativa grande (100K-256K+ tokens). Ollama reserva
@@ -85,10 +85,24 @@ necesitan más que unos pocos archivos de contexto).
 ```
 FROM <tu modelo base elegido>
 PARAMETER num_ctx 32768
+PARAMETER num_predict 4096
 ```
 
 ...y etiquetando el resultado como `ollama-rescue-mechanical`. El agente y la
 skill de este plugin solo llaman a ese tag, nunca a uno crudo recién bajado.
+
+`num_predict` acota la longitud de SALIDA, y sirve por una razón distinta a
+`num_ctx`: los modelos de razonamiento híbrido ("thinking") a veces se quedan
+divagando en su traza de razonamiento y nunca llegan a una respuesta —
+confirmado en la práctica con un modelo clase Qwen3.6 que registró 1800+
+tokens decodificados y subiendo, a menos de 4 tok/s, en una sola solicitud
+que nunca terminó. Sin un límite de salida eso se ve exactamente igual a un
+cuelgue y puede durar horas; con el límite, una generación trabada corta en
+unos minutos en vez de nunca. Si tus tareas delegadas son agénticas/con
+tool-calling (no solo el forwarder de una sola pasada de este plugin),
+preferí también un modelo base sin razonamiento (`devstral:24b` no tiene modo
+"thinking" visible; `qwen3.6:27b` sí) — la traza de razonamiento es
+justamente lo que tiende a descontrolarse.
 
 ## Eligiendo un modelo
 
@@ -99,8 +113,8 @@ si hay algo más nuevo — este panorama cambia rápido):
 
 | Modelo | Tamaño aprox. | Notas |
 |---|---|---|
-| `devstral:24b` | ~14GB | Denso, latencia más predecible, afinado específicamente para leer código multi-archivo y escribir parches. Default recomendado para el caso de uso puramente mecánico de este plugin. |
-| `qwen3.6:27b` | ~17GB | Con visión — útil si algunas tareas delegadas referencian una imagen o captura de pantalla. |
+| `devstral:24b` | ~14GB | Denso, latencia más predecible, sin modo "thinking" visible, afinado específicamente para leer código multi-archivo y escribir parches. Default recomendado para el caso de uso puramente mecánico de este plugin, y la opción más segura para uso agéntico/tool-calling en general. |
+| `qwen3.6:27b` | ~17GB | Con visión — útil si algunas tareas delegadas referencian una imagen o captura de pantalla. Modelo de razonamiento híbrido; acotá `num_predict` si lo usás, ver arriba. |
 | `qwen3-coder:30b` | ~18GB | MoE, ampliamente probado en la comunidad para tool-calling agéntico. |
 | `glm-4.7-flash:q4_K_M` | ~19GB | MoE, descrito por sus autores como el modelo más fuerte en la clase 30B. Requiere una versión reciente de Ollama. |
 
@@ -123,11 +137,12 @@ modelos locales de este tamaño son más propensos a errores sutiles que un
 modelo frontera en la nube, y a diferencia del diff ya aplicado de un CLI
 agéntico, acá nada fue validado por nada más que un modelo mucho más chico.
 
-## Problema conocido que este plugin mitiga
+## Problemas conocidos que este plugin mitiga
 
 | Problema | Solución integrada |
 |---|---|
 | Desborde de VRAM por contexto nativo — la mayoría de los modelos traen por defecto una ventana de contexto enorme que desborda la VRAM de consumo y fuerza offload pesado a CPU | `/ollama:setup` siempre construye un tag derivado con contexto acotado (`PARAMETER num_ctx 32768` por defecto) y el agente/skill solo llaman a ese tag |
+| Traza de razonamiento descontrolada en modelos "thinking" — la generación nunca converge, se ve exactamente igual a un cuelgue | `/ollama:setup` también acota `PARAMETER num_predict 4096` por defecto, así una generación trabada corta en vez de durar horas |
 
 ## Concurrencia
 

@@ -24,6 +24,7 @@ ollama run ollama-rescue-mechanical "<task>"
 ## Known issues to work around
 
 - **Native-context VRAM blowup**: a raw pulled tag (not the `-mechanical` derivative) can default to a 100K-256K+ token context, which reserves KV-cache far larger than the model's own weights and forces most of the model onto slow CPU inference. Always use the context-capped tag.
+- **Runaway reasoning trace**: hybrid-thinking models can occasionally never converge on an answer — confirmed in practice with 1800+ decoded tokens and climbing on one request. This looks exactly like a hang. The `-mechanical` tag also caps `num_predict` so a stuck generation hard-stops instead of running for hours; if it's still slow, prefer a non-reasoning base model.
 - **Cold start**: Ollama unloads an idle model after ~5 minutes by default (`OLLAMA_KEEP_ALIVE`). The first call after a gap reloads it (a few seconds to ~1 minute depending on size); calls within the window are instant.
 
 ## Availability / failure handling
