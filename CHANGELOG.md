@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-09-10
+
+- Added opt-in **agentic mode** (experimental) for tasks that need repository
+  reads and edits. Measured 2026-09-10: plumbing works, but devstral-32k and
+  qwen3.6-32k did not call tools in any run; the child now runs with an empty
+  `CLAUDE_CONFIG_DIR` (no hooks/global CLAUDE.md), resolves the `claude`
+  binary explicitly and falls back to the first `-32k`/`-mechanical` tag.
+  It runs a headless Claude Code instance against Ollama's native Anthropic
+  Messages API, with auto-accepted edits and recursive delegation disabled.
+- Added Ollama Anthropic API compatibility preflight to `/ollama:setup`.
+  Ollama 0.33 or newer is required for agentic mode; older versions retain
+  text mode.
+- Updated Claude Code and Codex instructions, safety guidance, delegation
+  snippets, and manifests for the two-mode workflow.
+
 ## 0.1.2 — 2026-07-28
 
 Found while running a real (non-trivial) delegated task, not just simple fire tests:

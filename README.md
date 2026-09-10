@@ -23,6 +23,8 @@ which this plugin pairs well with as a fallback lane (see
 
 - Claude Code
 - [Ollama](https://ollama.com/download) installed and running locally
+- Ollama >= 0.33 is required for agentic mode; older versions support text
+  mode only
 - A GPU (or enough system RAM) to run at least one ~15-25GB local coding
   model at usable speed — see [Choosing a model](#choosing-a-model) below.
   CPU-only works too, just slower.
@@ -55,6 +57,7 @@ Explicit delegation:
 /ollama:rescue remove all unused imports under src/ and fix the import order
 /ollama:rescue --background generate boilerplate test specs for src/services/user-mapper.ts
 /ollama:rescue --model ollama-rescue-vision describe the layout in this screenshot and scaffold a matching component
+/ollama:rescue --agentic update the repository changelog for the latest release
 ```
 
 Proactive delegation: the `ollama-rescue` agent describes itself so Claude
@@ -66,6 +69,45 @@ Full orchestration patterns — the Ollama/paid-delegate/reasoning-delegate
 split, the parallel pattern, WIP caps, concurrency on one GPU, and the
 availability fallback chain — live in
 [docs/delegation-guide.md](docs/delegation-guide.md).
+
+## Agentic mode
+
+> **Status: experimental.** Measured on 2026-09-10 with Ollama 0.33.3 and
+> Claude Code 2.1.x on a 16 GB GPU: the wiring works end to end, but
+> `devstral-32k` and `qwen3.6-32k` replied with a greeting or a question
+> instead of calling tools in every run, even with an isolated Claude config
+> and an explicit "use the Write tool" instruction. Use it only with a model
+> you have seen complete Claude Code's tool loop; for real file edits prefer
+> [bipolar-plugin-cc](https://github.com/santiquiroz/bipolar-plugin-cc) (big
+> local model) or a frontier lane. Text mode stays the default.
+
+This plugin has two modes. **Text mode** is the default for one-shot snippets:
+it calls Ollama's text completion API and returns draft text for Claude Code to
+review and apply. **Agentic mode** is for tasks that clearly need to read or
+edit repository files; a headless Claude Code child uses Ollama's native
+Anthropic Messages API and applies edits itself. Use `/ollama:rescue
+--agentic` or choose it when the task needs repository context.
+
+The exact command is:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<task text>" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+```
+
+The task is the positional argument; stdin is not read. Use only context-capped
+tags ending in `-32k` or `-mechanical`. Preflight compatibility with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:11434/v1/messages -H 'content-type: application/json' -d '{"model":"<tag>","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+HTTP 200 means agentic mode is available (Ollama >= 0.33); HTTP 404 means use
+text mode. Agentic edits are auto-accepted, so review `git diff`. The child
+must not delegate recursively (`Task,Agent` is mandatory), and the result is
+MEDIUM-LOW trust because it comes from a small local model. A mid-run kill is
+a false negative, not proof of failure. The Claude Code child also prints a
+harmless unrecognized-model warning and disables claude.ai connectors when
+the Ollama API key is set; no Anthropic quota is consumed.
 
 ## Why the context cap (and the output cap)
 
@@ -174,9 +216,9 @@ for the full explanation.
 
 | Piece | Purpose |
 |---|---|
-| `agents/ollama-rescue.md` | Thin forwarder subagent — one `ollama run` call, output returned verbatim |
-| `/ollama:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model <tag>`) |
-| `/ollama:setup` | Verify Ollama is installed/running and build the context-capped model |
+| `agents/ollama-rescue.md` | Text forwarder by default, with an opt-in agentic mode |
+| `/ollama:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--agentic`, `--model <tag>`) |
+| `/ollama:setup` | Verify Ollama is installed/running, check Anthropic compatibility, and build the context-capped model |
 | `docs/delegation-guide.md` | Full multi-lane orchestration guide (Ollama + paid delegate + reasoning delegate) |
 | `docs/claude-md-snippet.md` | Ready-to-paste CLAUDE.md block, with an Ollama-only variant |
 | `.codex-plugin/plugin.json` | Codex CLI plugin manifest (experimental native install) |

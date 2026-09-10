@@ -5,6 +5,10 @@ description: Delegate a mechanical, zero-domain-context coding task to a local O
 
 Forward the requested task to a local Ollama model with one shell command. Do not do the task yourself once Ollama is invoked — return its output.
 
+For one-shot snippets, use the text mode below by default. For a task that
+clearly needs to read or edit repository files, agentic mode is also
+available.
+
 ## Command
 
 Call Ollama's HTTP API directly — NOT the `ollama run` CLI:
@@ -45,6 +49,24 @@ There is no quota to exhaust — Ollama is local and free. If the command fails,
 - **Slow/heavy CPU offload**: the base model is too large for the available VRAM even with the context cap. Suggest a smaller base model.
 
 Report the error text verbatim instead of retrying silently — the caller decides whether to fall back to another approach or take the task over directly.
+
+## Agentic mode
+
+When the task needs repository reads/edits, run this option from the current
+repository directory in one foreground shell call (never background it) with
+a timeout of at least `600000` ms:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<task text>" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+```
+
+The task text is positional; stdin is not read. Use only tags ending in
+`-32k` or `-mechanical`. `--disallowedTools Task,Agent` is mandatory because
+the child reads the global `CLAUDE.md` and must not delegate recursively.
+Edits are auto-accepted, so review `git diff`; this is MEDIUM-LOW trust from a
+small local model. A mid-run kill is a false negative. Preflight
+`POST http://127.0.0.1:11434/v1/messages` first: HTTP 200 means Ollama
+>= 0.33 and agentic mode is available; HTTP 404 means fall back to text mode.
 
 ## Output
 

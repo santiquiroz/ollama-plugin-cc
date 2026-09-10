@@ -26,6 +26,23 @@ ollama list
 
 - If this errors with a connection failure (not just "no models"), the Ollama background service isn't running. Tell the user to start it (the Ollama desktop app starts it automatically on Windows/macOS; on Linux, `systemctl start ollama` or `ollama serve` in a separate terminal) and stop here.
 
+Step 2.5 — Anthropic API compatibility
+
+Run this preflight against a tag that is available locally (use the tag you
+plan to cap below):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:11434/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"<tag>","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+Report `Anthropic API: sí` for HTTP 200 or `Anthropic API: no` for HTTP 404
+(`Ollama >= 0.33`). When it is yes, report that agentic mode is available.
+When choosing a base model, recommend context-capped derivative tags in the
+style of `devstral-32k` or `qwen3.6-32k`; never use an uncapped raw tag for
+agentic mode.
+
 Step 3 — Context-capped model present?
 
 This plugin always delegates to a tag named `ollama-rescue-mechanical` — never to a raw pulled tag directly. Reason: most current local coding models default to a very large native context window (100K-256K+ tokens), and Ollama reserves KV-cache proportional to that context by default. On a consumer GPU this overflows VRAM and forces heavy CPU offload even for a short one-line completion, making every delegated call far slower than it needs to be. Capping the context via a derivative Modelfile fixes this.
@@ -81,4 +98,7 @@ ollama ps
 
 Step 6 — Consolidated report
 
-Summarize in one short block: install state, service state, `ollama-rescue-mechanical` present (and which base model it was built from), smoke-test result, and the GPU/CPU split from Step 5.
+Summarize in one short block: install state, service state, Anthropic API
+`sí/no`, whether agentic mode is available, `ollama-rescue-mechanical` present
+(and which base model it was built from), smoke-test result, and the GPU/CPU
+split from Step 5.

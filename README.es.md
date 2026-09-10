@@ -24,6 +24,8 @@ con el que este plugin combina bien como carril de respaldo (ver
 
 - Claude Code
 - [Ollama](https://ollama.com/download) instalado y corriendo localmente
+- Ollama >= 0.33 es necesario para el modo agéntico; las versiones
+  anteriores solo admiten el modo de texto
 - Una GPU (o suficiente RAM del sistema) para correr al menos un modelo de
   código local de ~15-25GB a velocidad usable — ver
   [Eligiendo un modelo](#eligiendo-un-modelo) abajo. También funciona solo con
@@ -58,6 +60,7 @@ Delegación explícita:
 /ollama:rescue remove all unused imports under src/ and fix the import order
 /ollama:rescue --background generate boilerplate test specs for src/services/user-mapper.ts
 /ollama:rescue --model ollama-rescue-vision describe the layout in this screenshot and scaffold a matching component
+/ollama:rescue --agentic actualizá el changelog del repositorio para la última versión
 ```
 
 Delegación proactiva: el agente `ollama-rescue` se describe a sí mismo para
@@ -69,6 +72,50 @@ Patrones de orquestación completa — la división Ollama/delegado de
 pago/delegado de razonamiento, el patrón paralelo, límites de WIP,
 concurrencia en una sola GPU y la cadena de fallback de disponibilidad —
 están en [docs/delegation-guide.md](docs/delegation-guide.md).
+
+## Modo agéntico
+
+> **Estado: experimental.** Medido el 10-sep-2026 con Ollama 0.33.3 y Claude
+> Code 2.1.x en una GPU de 16 GB: el cableado funciona de punta a punta, pero
+> `devstral-32k` y `qwen3.6-32k` respondieron con un saludo o una pregunta en
+> vez de llamar herramientas en todas las corridas, incluso con configuración
+> de Claude aislada y la instrucción explícita de usar la herramienta Write.
+> Úsalo solo con un modelo que hayas visto completar el loop de herramientas de
+> Claude Code; para ediciones reales prefiere
+> [bipolar-plugin-cc](https://github.com/santiquiroz/bipolar-plugin-cc) (modelo
+> local grande) o una vía frontier. El modo texto sigue siendo el predeterminado.
+
+Este plugin tiene dos modos. El **modo de texto** es el predeterminado para
+snippets de una sola pasada: llama a la API de completado de texto de Ollama y
+devuelve texto borrador para que Claude Code lo revise y aplique. El **modo
+agéntico** sirve para tareas que necesitan leer o editar archivos del repo:
+un Claude Code sin interfaz usa la API Messages de Anthropic nativa de Ollama
+y aplica los cambios por sí mismo. Usá `/ollama:rescue --agentic` o elegilo
+cuando la tarea necesite contexto del repositorio.
+
+El comando exacto es:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<texto de la tarea>" --model <tag con contexto acotado como devstral-32k u ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+```
+
+La tarea es el argumento posicional; no se lee stdin. Usá únicamente tags con
+contexto acotado que terminen en `-32k` o `-mechanical`. Verificá la
+compatibilidad con:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:11434/v1/messages -H 'content-type: application/json' -d '{"model":"<tag>","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+HTTP 200 significa que el modo agéntico está disponible (Ollama >= 0.33);
+HTTP 404 significa que hay que usar el modo de texto. Los cambios agénticos
+se aceptan automáticamente, así que revisá `git diff`. El hijo no debe
+delegar recursivamente (`Task,Agent` es obligatorio), y el resultado tiene
+confianza MEDIUM-LOW porque lo produce un modelo local pequeño. Matarlo a
+mitad de ejecución es un falso negativo, no una prueba de falla. Claude Code
+también muestra una advertencia inocua de modelo no reconocido y desactiva
+los conectores de claude.ai al definir la clave de Ollama; no consume cuota de
+Anthropic.
 
 ## Por qué el límite de contexto (y el límite de salida)
 
@@ -182,9 +229,9 @@ para la explicación completa.
 
 | Componente | Propósito |
 |---|---|
-| `agents/ollama-rescue.md` | Agente forwarder delgado — una llamada `ollama run`, salida devuelta textualmente |
-| `/ollama:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--model <tag>`) |
-| `/ollama:setup` | Verifica que Ollama esté instalado/corriendo y construye el modelo con contexto acotado |
+| `agents/ollama-rescue.md` | Forwarder de texto por defecto, con modo agéntico optativo |
+| `/ollama:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--agentic`, `--model <tag>`) |
+| `/ollama:setup` | Verifica Ollama, comprueba compatibilidad Anthropic y construye el modelo con contexto acotado |
 | `docs/delegation-guide.md` | Guía completa de orquestación multi-carril (Ollama + delegado de pago + delegado de razonamiento) |
 | `docs/claude-md-snippet.md` | Bloque listo para copiar en CLAUDE.md, con variante solo-Ollama |
 | `.codex-plugin/plugin.json` | Manifiesto de plugin para Codex CLI (instalación nativa experimental) |

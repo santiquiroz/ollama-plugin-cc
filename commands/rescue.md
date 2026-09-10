@@ -1,6 +1,6 @@
 ---
 description: Delegate a mechanical, zero-domain-context task to the Ollama rescue subagent
-argument-hint: "[--background|--wait] [--model <tag>] [the mechanical task Ollama should perform]"
+argument-hint: "[--background|--wait] [--agentic] [--model <tag>] [the mechanical task Ollama should perform]"
 allowed-tools: AskUserQuestion, Agent
 ---
 
@@ -26,3 +26,9 @@ Operating rules:
 - Do not ask the subagent to inspect files, monitor progress, summarize output, or do follow-up work of its own.
 - If the returned output shows Ollama is not installed, not running, or the expected model is missing, tell the user to run `/ollama:setup`.
 - If the user did not supply a task, ask what mechanical task Ollama should perform.
+- If the request includes `--agentic`, use the agent's Agentic mode. It runs a
+  headless Claude Code child in the current repository so it can read and edit
+  files; it is not the default for one-shot snippets.
+- Agentic mode requires Ollama >= 0.33 and a context-capped tag ending in
+  `-32k` or `-mechanical`; keep `--disallowedTools "Task,Agent,WebSearch,WebFetch"`
+  and run in the foreground with a timeout of at least 600000 ms.

@@ -30,6 +30,7 @@ Delegate proactively, before any paid delegate:
 | Generating interfaces from DTOs/entities (pure field mapping) | `ollama:ollama-rescue` subagent, background |
 | Component boilerplate shells (imports, constructor, lifecycle) | `ollama:ollama-rescue` subagent, background |
 | Applying an identical config block to N similar files | `ollama:ollama-rescue` subagent, background |
+| Task clearly needs to read/edit repository files | `ollama:ollama-rescue --agentic`, foreground |
 | PR description when commits are self-explanatory | `ollama:ollama-rescue` subagent, background |
 
 Never delegate: domain logic, business rules, architecture decisions, complex
@@ -79,6 +80,7 @@ Ollama owns pure-mechanical, zero-domain-context work. Delegate proactively:
 | Generating interfaces from DTOs/entities (pure field mapping) | `ollama:ollama-rescue` subagent, background |
 | Component boilerplate shells (imports, constructor, lifecycle) | `ollama:ollama-rescue` subagent, background |
 | Applying an identical config block to N similar files | `ollama:ollama-rescue` subagent, background |
+| Task clearly needs to read/edit repository files | `ollama:ollama-rescue --agentic`, foreground |
 | PR description when commits are self-explanatory | `ollama:ollama-rescue` subagent, background |
 
 Never delegate (stays inline — no other lane to fall back to): domain logic,

@@ -15,6 +15,8 @@ prompt needed — for:
 - Interface generation from DTOs/entities (pure field mapping)
 - Component boilerplate shells
 - Identical config blocks applied to N similar files
+- Tasks that clearly need to read/edit repository files (use agentic mode,
+  foreground)
 - PR descriptions when commits are self-explanatory
 
 Never delegate: domain logic, business rules, architecture decisions, complex
