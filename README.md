@@ -49,6 +49,18 @@ a base model and builds a context-capped derivative tag
 (`ollama-rescue-mechanical`) from it — see
 [Why the context cap](#why-the-context-cap) below for why that step matters.
 
+The agent and the Codex skill pick the model the same way in text and agentic
+mode, from what `GET /api/tags` lists:
+
+1. the tag passed with `--model`, as-is;
+2. otherwise `ollama-rescue-mechanical`, wherever it appears in the list;
+3. otherwise the first context-capped tag, i.e. a name ending in `-32k` or
+   `-mechanical` (e.g. `devstral-32k`);
+4. otherwise the call stops with `OLLAMA_ERROR: no context-capped model ...
+   run /ollama:setup` before anything is sent to a model.
+
+A raw pulled tag such as `devstral:24b` is never picked automatically.
+
 ## Usage
 
 Explicit delegation:

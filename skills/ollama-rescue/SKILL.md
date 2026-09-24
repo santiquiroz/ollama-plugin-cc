@@ -18,7 +18,19 @@ PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <task>
 OLLAMA_TASK_EOF
 )
-MODEL="ollama-rescue-mechanical"
+MODEL_FLAG=""
+installed_tags() {
+  curl -sS http://localhost:11434/api/tags | tr ',{' '\n\n' \
+    | sed -n 's/^ *"name" *: *"\([^"]*\)".*/\1/p' | sed 's/:latest$//'
+}
+resolve_model() {
+  [ -n "$1" ] && { printf '%s\n' "$1"; return 0; }
+  local tags
+  tags=$(installed_tags) || return
+  grep -x -m1 -e ollama-rescue-mechanical <<<"$tags" \
+    || grep -E -m1 -e '^[^:]+-(32k|mechanical)(:.*)?$' <<<"$tags" \
+    || { echo "OLLAMA_ERROR: no context-capped model (ollama-rescue-mechanical or a *-32k/*-mechanical tag) is installed; run /ollama:setup" >&2; return 1; }
+}
 JQ_REPLY='. as $raw | ((try fromjson catch null) | if type == "object" then . else {} end) as $reply
 | if $reply.error then "OLLAMA_ERROR: \($reply.error)\n" | halt_error(1)
   elif ($reply.response | type) == "string" then $reply.response
@@ -68,11 +80,13 @@ response_text() {
   esac
 }
 set -o pipefail
-JSON_TOOL=$(json_tool) && printf '%s' "$PROMPT" | request_body \
+JSON_TOOL=$(json_tool) && MODEL=$(resolve_model "$MODEL_FLAG") && printf '%s' "$PROMPT" | request_body \
   | curl -sS http://localhost:11434/api/generate --data-binary @- | response_text
 ```
 
 Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines, never inside double quotes: the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let the shell execute or expand them. If the task contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. The JSON body is built and the reply parsed with the first available of `jq`, `python3`/`python` and `node`, so `jq` is not required. With `set -o pipefail` and `curl -sS`, failures are never silent: a connection error prints curl's message, a `{"error": ...}` body prints `OLLAMA_ERROR: <message>`, an empty or non-JSON body prints `OLLAMA_ERROR: unexpected reply: <body>`, and all of them exit non-zero. `ollama run` is an interactive-terminal tool that can leave ANSI/TTY control codes mixed into stdout even when not attached to a real terminal (confirmed in practice: real output came back with escape codes woven through actual code, needing a cleanup pass) — the HTTP API returns clean JSON instead.
+
+Both modes resolve the model with the same `resolve_model` function: a tag the caller passed with `--model` goes into `MODEL_FLAG=""` and is used as-is; otherwise `ollama-rescue-mechanical` if `GET /api/tags` lists it, wherever it appears; otherwise the first listed context-capped tag (a name ending in `-32k` or `-mechanical`, e.g. `devstral-32k`); otherwise the command stops with `OLLAMA_ERROR: no context-capped model ... run /ollama:setup` without calling the model. A raw pulled tag such as `devstral:24b` is never picked automatically, and preferring `ollama-rescue-mechanical` keeps every session on one loaded model.
 
 `ollama-rescue-mechanical` is a context-capped AND output-capped derivative model this plugin's setup builds via a small Modelfile (see `commands/setup.md` on the Claude Code side, or run the equivalent `ollama create` step manually — see the main README). Never call a raw pulled tag directly: most current coding models default to a huge native context window, and the resulting KV-cache overflows consumer VRAM, making the run far slower than it needs to be.
 
@@ -98,7 +112,8 @@ Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines, never inside
 There is no quota to exhaust — Ollama is local and free. If the command fails, it's one of:
 
 - **Connection refused**: the Ollama background service isn't running. Tell the user to start it, or run the setup steps in the main README.
-- **"model not found"**: `ollama-rescue-mechanical` hasn't been built yet. Point at the setup steps in the main README.
+- **`OLLAMA_ERROR: no context-capped model`**: neither `ollama-rescue-mechanical` nor any `-32k`/`-mechanical` tag is installed; nothing was sent to the model. Point at `/ollama:setup` or the setup steps in the main README.
+- **"model not found"**: the tag passed with `--model` hasn't been built yet. Point at the setup steps in the main README.
 - **`OLLAMA_ERROR: jq, python or node is required`**: none of the JSON tools is on `PATH`; nothing was sent. Install one of them.
 - **Slow/heavy CPU offload**: the base model is too large for the available VRAM even with the context cap. Suggest a smaller base model.
 
@@ -115,13 +130,29 @@ PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <task text>
 OLLAMA_TASK_EOF
 )
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+MODEL_FLAG=""
+installed_tags() {
+  curl -sS http://localhost:11434/api/tags | tr ',{' '\n\n' \
+    | sed -n 's/^ *"name" *: *"\([^"]*\)".*/\1/p' | sed 's/:latest$//'
+}
+resolve_model() {
+  [ -n "$1" ] && { printf '%s\n' "$1"; return 0; }
+  local tags
+  tags=$(installed_tags) || return
+  grep -x -m1 -e ollama-rescue-mechanical <<<"$tags" \
+    || grep -E -m1 -e '^[^:]+-(32k|mechanical)(:.*)?$' <<<"$tags" \
+    || { echo "OLLAMA_ERROR: no context-capped model (ollama-rescue-mechanical or a *-32k/*-mechanical tag) is installed; run /ollama:setup" >&2; return 1; }
+}
+set -o pipefail
+MODEL=$(resolve_model "$MODEL_FLAG") || exit 1
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model "$MODEL" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
 The task text is positional and goes through the same quoted heredoc as text
 mode, never inside double quotes (edits are auto-accepted, so an expanded
-backtick or `$(...)` would run commands); stdin is not read. Use only tags ending in
-`-32k` or `-mechanical`. `--disallowedTools Task,Agent` is mandatory because
+backtick or `$(...)` would run commands); stdin is not read. The model comes
+from the same `resolve_model` as text mode (set `MODEL_FLAG` for `--model`).
+`--disallowedTools Task,Agent` is mandatory because
 the child reads the global `CLAUDE.md` and must not delegate recursively.
 Edits are auto-accepted, so review `git diff`; this is MEDIUM-LOW trust from a
 small local model. A mid-run kill is a false negative. Preflight

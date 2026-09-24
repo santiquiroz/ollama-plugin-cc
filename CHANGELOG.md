@@ -26,6 +26,17 @@
 - Added `tests/test_errors.py`: a fake Ollama (`http.server` on an ephemeral
   127.0.0.1 port) checks the ok, error, non-JSON and closed-port cases with
   `jq` hidden from `PATH`, once with Python and once with Node.
+- Fix: text and agentic mode now resolve the model with the same
+  `resolve_model` snippet: `--model` as-is, else `ollama-rescue-mechanical` if
+  `/api/tags` lists it, else the first `-32k`/`-mechanical` tag, else
+  `OLLAMA_ERROR: no context-capped model ... run /ollama:setup` before any
+  model is called. Text mode used to hardcode `ollama-rescue-mechanical` (a
+  "model not found" on machines that only have e.g. `devstral-32k`), and
+  agentic mode took the first capped tag even when `ollama-rescue-mechanical`
+  was installed. Raw tags such as `devstral:24b` are never picked.
+- Added `tests/test_model_resolution.py`: a fake `/api/tags` checks both modes
+  of the agent and the skill for the four cases, plus that all four copies of
+  the snippet are identical.
 
 ## 0.2.0 — 2026-09-10
 

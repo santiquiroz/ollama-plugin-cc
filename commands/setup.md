@@ -61,7 +61,7 @@ agentic mode.
 
 Step 3 — Context-capped model present?
 
-This plugin always delegates to a tag named `ollama-rescue-mechanical` — never to a raw pulled tag directly. Reason: most current local coding models default to a very large native context window (100K-256K+ tokens), and Ollama reserves KV-cache proportional to that context by default. On a consumer GPU this overflows VRAM and forces heavy CPU offload even for a short one-line completion, making every delegated call far slower than it needs to be. Capping the context via a derivative Modelfile fixes this.
+This plugin delegates to a tag named `ollama-rescue-mechanical` (falling back to another tag ending in `-32k` or `-mechanical` only when that one is missing) — never to a raw pulled tag directly. Reason: most current local coding models default to a very large native context window (100K-256K+ tokens), and Ollama reserves KV-cache proportional to that context by default. On a consumer GPU this overflows VRAM and forces heavy CPU offload even for a short one-line completion, making every delegated call far slower than it needs to be. Capping the context via a derivative Modelfile fixes this.
 
 Check:
 

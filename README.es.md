@@ -52,6 +52,18 @@ modelo base y construir un tag derivado con contexto acotado
 [Por qué el límite de contexto](#por-qué-el-límite-de-contexto) abajo para
 entender por qué ese paso importa.
 
+El agente y la skill de Codex eligen el modelo igual en modo texto y en modo
+agéntico, a partir de lo que lista `GET /api/tags`:
+
+1. el tag pasado con `--model`, tal cual;
+2. si no, `ollama-rescue-mechanical`, esté donde esté en la lista;
+3. si no, el primer tag con contexto acotado, es decir, un nombre terminado en
+   `-32k` o `-mechanical` (por ejemplo `devstral-32k`);
+4. si no hay ninguno, la llamada se detiene con `OLLAMA_ERROR: no
+   context-capped model ... run /ollama:setup` antes de enviar nada a un modelo.
+
+Nunca se elige automáticamente un tag crudo como `devstral:24b`.
+
 ## Uso
 
 Delegación explícita:

@@ -31,7 +31,19 @@ Forwarding rules:
   <task>
   OLLAMA_TASK_EOF
   )
-  MODEL="<model>"
+  MODEL_FLAG=""
+  installed_tags() {
+    curl -sS http://localhost:11434/api/tags | tr ',{' '\n\n' \
+      | sed -n 's/^ *"name" *: *"\([^"]*\)".*/\1/p' | sed 's/:latest$//'
+  }
+  resolve_model() {
+    [ -n "$1" ] && { printf '%s\n' "$1"; return 0; }
+    local tags
+    tags=$(installed_tags) || return
+    grep -x -m1 -e ollama-rescue-mechanical <<<"$tags" \
+      || grep -E -m1 -e '^[^:]+-(32k|mechanical)(:.*)?$' <<<"$tags" \
+      || { echo "OLLAMA_ERROR: no context-capped model (ollama-rescue-mechanical or a *-32k/*-mechanical tag) is installed; run /ollama:setup" >&2; return 1; }
+  }
   JQ_REPLY='. as $raw | ((try fromjson catch null) | if type == "object" then . else {} end) as $reply
   | if $reply.error then "OLLAMA_ERROR: \($reply.error)\n" | halt_error(1)
     elif ($reply.response | type) == "string" then $reply.response
@@ -81,13 +93,13 @@ Forwarding rules:
     esac
   }
   set -o pipefail
-  JSON_TOOL=$(json_tool) && printf '%s' "$PROMPT" | request_body \
+  JSON_TOOL=$(json_tool) && MODEL=$(resolve_model "$MODEL_FLAG") && printf '%s' "$PROMPT" | request_body \
     | curl -sS http://localhost:11434/api/generate --data-binary @- | response_text
   ```
 
   Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines and never inside double quotes. Run the block without this list's two-space indentation: the task lines and the closing `OLLAMA_TASK_EOF` must start at column 0, or the heredoc never closes. The quoting matters because the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let bash execute or expand them. If the task itself contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. The block builds and parses the JSON with the first tool it finds among `jq`, `python3`/`python` and `node` (never by string-interpolating the task into a JSON literal), so it works on machines without `jq`. `set -o pipefail` and `curl -sS` keep failures visible: a connection error prints curl's message and exits non-zero, a `{"error": ...}` body prints `OLLAMA_ERROR: <message>` and exits non-zero, and an empty or non-JSON body prints `OLLAMA_ERROR: unexpected reply: <body>`. `stream:false` returns one JSON object with the full response instead of a stream of partial-token objects.
 - **Do not use the `ollama run <model>` CLI for this** — it is an interactive-terminal tool that can emit ANSI/TTY control sequences (spinners, cursor movement) mixed into stdout even when not attached to a real terminal. Confirmed in practice: a real task's output came back with terminal escape codes woven through the actual code, requiring a separate cleanup pass before it was usable. The HTTP API returns clean JSON with no such artifacts.
-- Default model is `ollama-rescue-mechanical` (see this plugin's `commands/setup.md` for how it's created — a Modelfile-derived tag with context and output length capped to sane sizes). If the caller's prompt names a different model this plugin also sets up (e.g. a vision-capable one for a task referencing an image), use that instead.
+- Model resolution is the same in text and agentic mode, done by the `resolve_model` function in both blocks: if the caller passed `--model <tag>` (e.g. a vision-capable tag for a task referencing an image), put that tag in `MODEL_FLAG=""` and it is used as-is; otherwise `ollama-rescue-mechanical` if `GET /api/tags` lists it, wherever it appears in the list; otherwise the first listed context-capped tag (a name ending in `-32k` or `-mechanical`, e.g. `devstral-32k`); otherwise the block stops with `OLLAMA_ERROR: no context-capped model ... run /ollama:setup` without calling the model. A raw pulled tag such as `devstral:24b` is never picked automatically. `ollama-rescue-mechanical` is preferred so every session shares one loaded model (see `docs/delegation-guide.md`); `commands/setup.md` shows how it is built — a Modelfile-derived tag with context and output length capped to sane sizes.
 - **Never use a raw `ollama pull`-ed tag directly** (e.g. a bare `<model>:<size>` tag straight from the library). Most current coding models default to a very large native context window (100K-256K+ tokens); loading that by default reserves a KV-cache many times larger than the model's own weights, which overflows consumer VRAM and forces heavy CPU offload — the run becomes drastically slower without you having done anything wrong. Only use context-capped derivative tags (built via a small Modelfile with `PARAMETER num_ctx <N>` and `PARAMETER num_predict <N>`, see `commands/setup.md`). The output cap matters on its own: a hybrid-reasoning model can occasionally never converge on an answer (confirmed in practice — 1800+ tokens decoded and climbing on one request, at under 4 tok/s), which looks exactly like a hang without it.
 - **Use a generous Bash timeout — do not rely on the default.** On modest consumer hardware, sustained generation for a real (non-trivial) task has been observed well under 5 tok/s, meaning a few hundred output tokens can take several minutes and a full file can take considerably longer. A short default timeout killing the call mid-generation is a false negative, not evidence the model is stuck. Set the Bash call's timeout to at least 600000ms (10 minutes) for anything beyond a one-line snippet; only trivial single-line completions can reasonably use a short timeout.
 - This subagent has no filesystem or git access, and intentionally so: the API call is a pure text-completion request, not an agentic CLI — it cannot read, write, or execute anything on its own. There is nothing to sandbox with allow/deny flags because there is nothing it can do besides return text. The caller (main Claude thread) is responsible for reading the returned text and applying it via its own Edit/Write tools after reviewing it.
@@ -96,7 +108,7 @@ Forwarding rules:
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, or do any follow-up work of your own.
 - Some Ollama models are hybrid-reasoning ("thinking") models and may emit a reasoning preamble before the actual answer, even via the API. Return the full response as-is regardless — do not try to strip it yourself, the caller extracts what it needs.
 - If output looks truncated, garbled, or clearly answers a different question than asked, return it anyway — do not retry, self-correct, or silently discard it. The caller decides whether to retry, escalate to a paid delegate, or take over.
-- If the call fails (connection refused, an `OLLAMA_ERROR:` line such as a JSON error body naming an unknown model, or any other non-zero exit), return the error text verbatim instead of suppressing it. `OLLAMA_ERROR: jq, python or node is required` means the machine has none of the three JSON tools; nothing was sent to Ollama. A connection-refused error almost always means the Ollama service isn't running; a "model not found" error means the expected tag hasn't been pulled/built yet (point at `/ollama:setup`). The caller decides whether to start the service, run setup, fall back to a paid delegate, or take over directly.
+- If the call fails (connection refused, an `OLLAMA_ERROR:` line such as a JSON error body naming an unknown model, or any other non-zero exit), return the error text verbatim instead of suppressing it. `OLLAMA_ERROR: jq, python or node is required` means the machine has none of the three JSON tools; nothing was sent to Ollama. `OLLAMA_ERROR: no context-capped model` means `/api/tags` lists neither `ollama-rescue-mechanical` nor any `-32k`/`-mechanical` tag; nothing was sent to the model (point at `/ollama:setup`). A connection-refused error almost always means the Ollama service isn't running; a "model not found" error means the tag passed with `--model` hasn't been pulled/built yet (point at `/ollama:setup`). The caller decides whether to start the service, run setup, fall back to a paid delegate, or take over directly.
 
 Agentic mode (EXPERIMENTAL):
 
@@ -119,13 +131,27 @@ Agentic mode (EXPERIMENTAL):
   ```bash
   CLAUDE_BIN=$(command -v claude 2>/dev/null || ls "$HOME/.local/bin/claude.exe" "$HOME/.local/bin/claude" 2>/dev/null | head -1)
   [ -n "$CLAUDE_BIN" ] || { echo "claude CLI not found"; exit 127; }
-  TAG=$(curl -s http://127.0.0.1:11434/api/tags | tr ',' '\n' | grep -o '"name":"[^"]*\(-32k\|-mechanical\)[^"]*"' | head -1 | cut -d'"' -f4)
+  MODEL_FLAG=""
+  installed_tags() {
+    curl -sS http://localhost:11434/api/tags | tr ',{' '\n\n' \
+      | sed -n 's/^ *"name" *: *"\([^"]*\)".*/\1/p' | sed 's/:latest$//'
+  }
+  resolve_model() {
+    [ -n "$1" ] && { printf '%s\n' "$1"; return 0; }
+    local tags
+    tags=$(installed_tags) || return
+    grep -x -m1 -e ollama-rescue-mechanical <<<"$tags" \
+      || grep -E -m1 -e '^[^:]+-(32k|mechanical)(:.*)?$' <<<"$tags" \
+      || { echo "OLLAMA_ERROR: no context-capped model (ollama-rescue-mechanical or a *-32k/*-mechanical tag) is installed; run /ollama:setup" >&2; return 1; }
+  }
+  set -o pipefail
+  MODEL=$(resolve_model "$MODEL_FLAG") || exit 1
   ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX")
   PROMPT=$(cat <<'OLLAMA_TASK_EOF'
   <task text>
   OLLAMA_TASK_EOF
   )
-  CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model "${MODEL:-$TAG}" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+  CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model "$MODEL" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
   ```
 
 - `CLAUDE_CONFIG_DIR` pointing at an empty directory is deliberate: the child
@@ -134,9 +160,11 @@ Agentic mode (EXPERIMENTAL):
   no Anthropic login because the backend is Ollama. The project's own
   `CLAUDE.md` still applies. `command -v claude` can fail in Git Bash even
   when Claude Code is installed (`~/.local/bin` missing from PATH), hence the
-  explicit fallback. `MODEL` is the tag the caller passed with `--model`;
-  otherwise the first context-capped tag Ollama lists is used, so a machine
-  without `ollama-rescue-mechanical` still resolves to e.g. `devstral-32k`.
+  explicit fallback. `resolve_model` is the same function as in text mode:
+  `--model` (in `MODEL_FLAG`), then `ollama-rescue-mechanical`, then the first
+  listed `-32k`/`-mechanical` tag, else `OLLAMA_ERROR` pointing at
+  `/ollama:setup` before the child starts. A machine without
+  `ollama-rescue-mechanical` therefore still resolves to e.g. `devstral-32k`.
 
 - The task text is the positional argument to `claude -p`; stdin is not read.
   Pass it through the quoted `OLLAMA_TASK_EOF` heredoc exactly as in text

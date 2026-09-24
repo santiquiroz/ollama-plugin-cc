@@ -37,10 +37,15 @@ class FakeOllama(BaseHTTPRequestHandler):
     mode = "ok"
     requests = []
 
+    def do_GET(self):
+        self.reply(200, json.dumps({"models": [{"name": MODEL + ":latest"}]}))
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         FakeOllama.requests.append((self.path, body))
-        status, payload = REPLIES[FakeOllama.mode]
+        self.reply(*REPLIES[FakeOllama.mode])
+
+    def reply(self, status, payload):
         encoded = payload.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -74,7 +79,7 @@ def find_text_mode_block(text):
 
 
 def render(block, port):
-    with_task = TASK_PLACEHOLDER.sub(lambda _m: TASK, block).replace("<model>", MODEL)
+    with_task = TASK_PLACEHOLDER.sub(lambda _m: TASK, block)
     return with_task.replace(OLLAMA_BASE, f"http://127.0.0.1:{port}")
 
 
