@@ -96,10 +96,17 @@ cuando la tarea necesite contexto del repositorio.
 El comando exacto es:
 
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<texto de la tarea>" --model <tag con contexto acotado como devstral-32k u ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+<texto de la tarea>
+OLLAMA_TASK_EOF
+)
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <tag con contexto acotado como devstral-32k u ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
-La tarea es el argumento posicional; no se lee stdin. Usá únicamente tags con
+La tarea es el argumento posicional; no se lee stdin. Pasa por un heredoc entre
+comillas simples y no por comillas dobles, para que los backticks, `$VAR` y
+`$(...)` de la tarea lleguen literales al modelo en vez de ejecutarse en el
+shell (lo mismo vale para el modo texto). Usá únicamente tags con
 contexto acotado que terminen en `-32k` o `-mechanical`. Verificá la
 compatibilidad con:
 

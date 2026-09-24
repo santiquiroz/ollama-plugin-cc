@@ -27,13 +27,17 @@ Forwarding rules:
 - Use exactly one `Bash` call against Ollama's HTTP API, NOT the `ollama run` CLI:
 
   ```bash
+  PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+  <task>
+  OLLAMA_TASK_EOF
+  )
   curl -s http://localhost:11434/api/generate \
-    -d "$(jq -n --arg model "<model>" --arg prompt "<task>" '{model:$model, prompt:$prompt, stream:false}')" \
+    -d "$(jq -n --arg model "<model>" --arg prompt "$PROMPT" '{model:$model, prompt:$prompt, stream:false}')" \
     | jq -r '.response'
   ```
 
-  Building the JSON body with `jq -n` (rather than string-interpolating the task into a JSON literal by hand) avoids breaking on quotes, newlines, or backticks inside the task text. `stream:false` returns one JSON object with the full response instead of a stream of partial-token objects.
-- **Do not use `ollama run <model> "<task>"` for this** — it is an interactive-terminal tool that can emit ANSI/TTY control sequences (spinners, cursor movement) mixed into stdout even when not attached to a real terminal. Confirmed in practice: a real task's output came back with terminal escape codes woven through the actual code, requiring a separate cleanup pass before it was usable. The HTTP API returns clean JSON with no such artifacts.
+  Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines and never inside double quotes. Run the block without this list's two-space indentation: the task lines and the closing `OLLAMA_TASK_EOF` must start at column 0, or the heredoc never closes. The quoting matters because the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let bash execute or expand them. If the task itself contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. Building the JSON body with `jq -n --arg` (rather than string-interpolating the task into a JSON literal by hand) then keeps the JSON valid. `stream:false` returns one JSON object with the full response instead of a stream of partial-token objects.
+- **Do not use the `ollama run <model>` CLI for this** — it is an interactive-terminal tool that can emit ANSI/TTY control sequences (spinners, cursor movement) mixed into stdout even when not attached to a real terminal. Confirmed in practice: a real task's output came back with terminal escape codes woven through the actual code, requiring a separate cleanup pass before it was usable. The HTTP API returns clean JSON with no such artifacts.
 - Default model is `ollama-rescue-mechanical` (see this plugin's `commands/setup.md` for how it's created — a Modelfile-derived tag with context and output length capped to sane sizes). If the caller's prompt names a different model this plugin also sets up (e.g. a vision-capable one for a task referencing an image), use that instead.
 - **Never use a raw `ollama pull`-ed tag directly** (e.g. a bare `<model>:<size>` tag straight from the library). Most current coding models default to a very large native context window (100K-256K+ tokens); loading that by default reserves a KV-cache many times larger than the model's own weights, which overflows consumer VRAM and forces heavy CPU offload — the run becomes drastically slower without you having done anything wrong. Only use context-capped derivative tags (built via a small Modelfile with `PARAMETER num_ctx <N>` and `PARAMETER num_predict <N>`, see `commands/setup.md`). The output cap matters on its own: a hybrid-reasoning model can occasionally never converge on an answer (confirmed in practice — 1800+ tokens decoded and climbing on one request, at under 4 tok/s), which looks exactly like a hang without it.
 - **Use a generous Bash timeout — do not rely on the default.** On modest consumer hardware, sustained generation for a real (non-trivial) task has been observed well under 5 tok/s, meaning a few hundred output tokens can take several minutes and a full file can take considerably longer. A short default timeout killing the call mid-generation is a false negative, not evidence the model is stuck. Set the Bash call's timeout to at least 600000ms (10 minutes) for anything beyond a one-line snippet; only trivial single-line completions can reasonably use a short timeout.
@@ -68,7 +72,11 @@ Agentic mode (EXPERIMENTAL):
   [ -n "$CLAUDE_BIN" ] || { echo "claude CLI not found"; exit 127; }
   TAG=$(curl -s http://127.0.0.1:11434/api/tags | tr ',' '\n' | grep -o '"name":"[^"]*\(-32k\|-mechanical\)[^"]*"' | head -1 | cut -d'"' -f4)
   ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX")
-  CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "<task text>" --model "${MODEL:-$TAG}" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+  PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+  <task text>
+  OLLAMA_TASK_EOF
+  )
+  CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model "${MODEL:-$TAG}" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
   ```
 
 - `CLAUDE_CONFIG_DIR` pointing at an empty directory is deliberate: the child
@@ -82,6 +90,9 @@ Agentic mode (EXPERIMENTAL):
   without `ollama-rescue-mechanical` still resolves to e.g. `devstral-32k`.
 
 - The task text is the positional argument to `claude -p`; stdin is not read.
+  Pass it through the quoted `OLLAMA_TASK_EOF` heredoc exactly as in text
+  mode, never inside double quotes: this child runs with auto-accepted edits,
+  so an expanded backtick or `$(...)` would run commands on the host.
   Use only context-capped model tags ending in `-32k` or `-mechanical`.
   `--disallowedTools Task,Agent` is mandatory: the child reads the global
   `CLAUDE.md` and must not delegate recursively. The full value above also

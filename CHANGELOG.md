@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Security fix: the agent, the Codex skill and both READMEs now pass the task
+  text to the shell through a quoted heredoc (`PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+  ... OLLAMA_TASK_EOF)`) and use `"$PROMPT"`, instead of pasting it inside
+  double quotes. Backticks, `$VAR` and `$(...)` in a task were being executed
+  or expanded by bash, so the model received a mutilated task with exit 0, and
+  in agentic mode (auto-accepted edits) the task text could run commands.
+  The old claim that `jq -n` protected against backticks was wrong: it only
+  keeps the JSON valid.
+- Added `tests/test_quoting.py` (run with `bash tests/run.sh`): it renders
+  every documented task template with a hostile task and checks, with shimmed
+  `curl`/`jq`/`claude` and no network, that the prompt arrives byte for byte.
+
 ## 0.2.0 — 2026-09-10
 
 - Added opt-in **agentic mode** (experimental) for tasks that need repository

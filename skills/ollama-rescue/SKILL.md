@@ -14,12 +14,16 @@ available.
 Call Ollama's HTTP API directly — NOT the `ollama run` CLI:
 
 ```bash
+PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+<task>
+OLLAMA_TASK_EOF
+)
 curl -s http://localhost:11434/api/generate \
-  -d "$(jq -n --arg model "ollama-rescue-mechanical" --arg prompt "<task>" '{model:$model, prompt:$prompt, stream:false}')" \
+  -d "$(jq -n --arg model "ollama-rescue-mechanical" --arg prompt "$PROMPT" '{model:$model, prompt:$prompt, stream:false}')" \
   | jq -r '.response'
 ```
 
-Building the JSON body with `jq -n` avoids breaking on quotes/newlines/backticks in the task text. `ollama run` is an interactive-terminal tool that can leave ANSI/TTY control codes mixed into stdout even when not attached to a real terminal (confirmed in practice: real output came back with escape codes woven through actual code, needing a cleanup pass) — the HTTP API returns clean JSON instead.
+Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines, never inside double quotes: the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let the shell execute or expand them. If the task contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. `jq -n --arg` then keeps the JSON body valid. `ollama run` is an interactive-terminal tool that can leave ANSI/TTY control codes mixed into stdout even when not attached to a real terminal (confirmed in practice: real output came back with escape codes woven through actual code, needing a cleanup pass) — the HTTP API returns clean JSON instead.
 
 `ollama-rescue-mechanical` is a context-capped AND output-capped derivative model this plugin's setup builds via a small Modelfile (see `commands/setup.md` on the Claude Code side, or run the equivalent `ollama create` step manually — see the main README). Never call a raw pulled tag directly: most current coding models default to a huge native context window, and the resulting KV-cache overflows consumer VRAM, making the run far slower than it needs to be.
 
@@ -57,10 +61,16 @@ repository directory in one foreground shell call (never background it) with
 a timeout of at least `600000` ms:
 
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<task text>" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+<task text>
+OLLAMA_TASK_EOF
+)
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
-The task text is positional; stdin is not read. Use only tags ending in
+The task text is positional and goes through the same quoted heredoc as text
+mode, never inside double quotes (edits are auto-accepted, so an expanded
+backtick or `$(...)` would run commands); stdin is not read. Use only tags ending in
 `-32k` or `-mechanical`. `--disallowedTools Task,Agent` is mandatory because
 the child reads the global `CLAUDE.md` and must not delegate recursively.
 Edits are auto-accepted, so review `git diff`; this is MEDIUM-LOW trust from a

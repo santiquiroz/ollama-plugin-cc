@@ -91,10 +91,17 @@ Anthropic Messages API and applies edits itself. Use `/ollama:rescue
 The exact command is:
 
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "<task text>" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+PROMPT=$(cat <<'OLLAMA_TASK_EOF'
+<task text>
+OLLAMA_TASK_EOF
+)
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
-The task is the positional argument; stdin is not read. Use only context-capped
+The task is the positional argument; stdin is not read. It goes through a
+quoted heredoc rather than double quotes so backticks, `$VAR` and `$(...)` in
+the task reach the model literally instead of being run by the shell (the same
+applies to text mode). Use only context-capped
 tags ending in `-32k` or `-mechanical`. Preflight compatibility with:
 
 ```bash
