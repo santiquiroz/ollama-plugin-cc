@@ -52,6 +52,16 @@
   in `commands/*.md` and checks them against `allowed-tools`, and runs the
   version, probe and Modelfile steps against a fake Ollama with a shimmed
   `ollama`.
+- Docs: agentic mode is opt-in only. The agent used to pick it on its own for
+  any task that "clearly needs to read or edit files", contradicting its own
+  "only with `--agentic`" rule, and the CLAUDE.md/AGENTS.md snippets listed it
+  as a proactive trigger. Now the agent, the Codex skill and both snippets use
+  it only on an explicit `--agentic` request and mark it experimental, the
+  "never applied automatically" claims are scoped to text mode (agentic edits
+  are auto-accepted, so review `git diff`), and `docs/delegation-guide.md` has
+  an "Agentic mode" section on its status, trust and review.
+- Added `tests/test_agentic_docs.py`: it checks those rules on the agent, the
+  skill, the snippets and the delegation guide.
 
 ## 0.2.0 — 2026-09-10
 

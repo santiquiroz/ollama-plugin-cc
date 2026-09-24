@@ -5,9 +5,9 @@ description: Delegate a mechanical, zero-domain-context coding task to a local O
 
 Forward the requested task to a local Ollama model with one shell command. Do not do the task yourself once Ollama is invoked — return its output.
 
-For one-shot snippets, use the text mode below by default. For a task that
-clearly needs to read or edit repository files, agentic mode is also
-available.
+Use the text mode below by default. The experimental agentic mode runs only
+when the caller explicitly asks for it (for example with `--agentic`); a task
+that needs to read or edit repository files does not switch modes on its own.
 
 ## Command
 
@@ -94,7 +94,7 @@ Both modes resolve the model with the same `resolve_model` function: a tag the c
 
 - Preserve the user's task text verbatim in the prompt. Do not add commentary or hedging.
 - **A task requiring correct reuse of a specific existing method/API signature is a bad fit unless that exact signature is pasted into the task text.** Confirmed in practice: asked to generate tests against an existing internal API, the model invented a plausible but nonexistent public method instead of the real private one it was never shown. Paste the real definitions inline for anything that touches existing code surface.
-- Ollama's completion is pure text — it has no filesystem or git access and cannot execute anything on its own. There is no allow/deny flag set to configure, unlike an agentic CLI delegate; the only safety consideration is that you (Codex) must actually read and review the returned text before applying it, since it was never applied automatically.
+- In text mode, Ollama's completion is pure text — it has no filesystem or git access and cannot execute anything on its own. There is no allow/deny flag set to configure, unlike an agentic CLI delegate; the only safety consideration is that you (Codex) must actually read and review the returned text before applying it, since it was never applied automatically. Agentic mode is the exception: its child edits files itself (see below).
 - Run the command synchronously — wait for it to finish, don't background it. Use a generous timeout (10+ minutes) for anything beyond a one-line snippet: sustained generation on modest consumer hardware has been observed under 5 tok/s, so a real task can genuinely take several minutes. A short timeout killing the call isn't evidence of a hang.
 - Some models emit a reasoning preamble before the real answer, even via the API. Return the full output as-is; don't strip it yourself.
 - Do not inspect the repo, grep, or do follow-up work beyond the one forwarded call — Ollama does the completion, you relay its output.
@@ -121,7 +121,12 @@ Report the error text verbatim instead of retrying silently — the caller decid
 
 ## Agentic mode
 
-When the task needs repository reads/edits, run this option from the current
+Experimental and opt-in: run this only when the caller explicitly asks for
+agentic mode (for example with `--agentic`), never just because the task
+needs repository reads/edits. Measured 2026-09-10 (Ollama 0.33.3):
+`devstral-32k` and `qwen3.6-32k` answered with a greeting or a question
+instead of calling tools in 4/4 runs, so real file edits are better served by
+a bigger model or a frontier lane. When asked, run it from the current
 repository directory in one foreground shell call (never background it) with
 a timeout of at least `600000` ms:
 

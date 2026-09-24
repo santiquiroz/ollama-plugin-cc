@@ -30,7 +30,6 @@ Delegate proactively, before any paid delegate:
 | Generating interfaces from DTOs/entities (pure field mapping) | `ollama:ollama-rescue` subagent, background |
 | Component boilerplate shells (imports, constructor, lifecycle) | `ollama:ollama-rescue` subagent, background |
 | Applying an identical config block to N similar files | `ollama:ollama-rescue` subagent, background |
-| Task clearly needs to read/edit repository files | `ollama:ollama-rescue --agentic`, foreground |
 | PR description when commits are self-explanatory | `ollama:ollama-rescue` subagent, background |
 
 Never delegate: domain logic, business rules, architecture decisions, complex
@@ -38,9 +37,14 @@ refactors requiring full codebase context, any task where the WHY lives in
 this conversation.
 
 Rules:
-- Ollama's output is never applied automatically — it's a plain text
-  completion, not an agentic diff. Read and review it before applying via
+- In text mode Ollama's output is never applied automatically — it's a plain
+  text completion, not a diff. Read and review it before applying via
   Edit/Write, more critically than you would a paid delegate's result.
+- `ollama:ollama-rescue --agentic` is experimental and opt-in only: never pick
+  it proactively, even for tasks that read or edit repository files; use it
+  only when the user explicitly asks. Small local models did not complete the
+  tool loop in any measured run. Its edits are auto-accepted, so review
+  `git diff` afterward.
 - Launch delegations in the background and keep working — never idle waiting.
 - WIP cap: 3-5 concurrent delegations. Kill-switch: 3 failed iterations on
   the same task → stop retrying, bring it inline (or hand to a paid delegate
@@ -80,7 +84,6 @@ Ollama owns pure-mechanical, zero-domain-context work. Delegate proactively:
 | Generating interfaces from DTOs/entities (pure field mapping) | `ollama:ollama-rescue` subagent, background |
 | Component boilerplate shells (imports, constructor, lifecycle) | `ollama:ollama-rescue` subagent, background |
 | Applying an identical config block to N similar files | `ollama:ollama-rescue` subagent, background |
-| Task clearly needs to read/edit repository files | `ollama:ollama-rescue --agentic`, foreground |
 | PR description when commits are self-explanatory | `ollama:ollama-rescue` subagent, background |
 
 Never delegate (stays inline — no other lane to fall back to): domain logic,
@@ -89,8 +92,11 @@ codebase context, build/type errors needing multi-step diagnosis, anything
 where the WHY lives in this conversation.
 
 Rules:
-- Ollama's output is never applied automatically — read and review it before
-  applying via Edit/Write.
+- In text mode Ollama's output is never applied automatically — read and
+  review it before applying via Edit/Write.
+- `ollama:ollama-rescue --agentic` is experimental and opt-in only: never pick
+  it proactively; use it only when the user explicitly asks. Its edits are
+  auto-accepted, so review `git diff` afterward.
 - Launch delegations in the background and keep working — never idle waiting.
 - WIP cap: 3-5 concurrent delegations. Kill-switch: 3 failed iterations on
   the same task → stop retrying, bring it inline.

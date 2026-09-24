@@ -15,19 +15,20 @@ prompt needed — for:
 - Interface generation from DTOs/entities (pure field mapping)
 - Component boilerplate shells
 - Identical config blocks applied to N similar files
-- Tasks that clearly need to read/edit repository files (use agentic mode,
-  foreground)
 - PR descriptions when commits are self-explanatory
 
 Never delegate: domain logic, business rules, architecture decisions, complex
 refactors requiring full codebase context, anything where the WHY lives in
 this conversation.
 
-Ollama's output is a plain text completion, never applied automatically —
-read and review it before using it, more critically than a paid delegate's
-result. On a connection-refused or "model not found" error, the local Ollama
-service isn't running or the model hasn't been set up yet — don't retry
-blindly, point at the plugin's setup steps instead.
+In text mode Ollama's output is a plain text completion, never applied
+automatically — read and review it before using it, more critically than a
+paid delegate's result. The skill's experimental agentic mode is opt-in only:
+never choose it proactively, even for tasks that read or edit repository
+files; use it only when the user explicitly asks. Its edits are auto-accepted,
+so review `git diff` afterward. On a connection-refused or "model not found"
+error, the local Ollama service isn't running or the model hasn't been set up
+yet — don't retry blindly, point at the plugin's setup steps instead.
 ```
 
 Requires Ollama installed and running locally (`ollama --version`, `ollama list`) with the `ollama-rescue-mechanical` model built. See the main [README](../README.md) for setup steps.

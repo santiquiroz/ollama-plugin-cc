@@ -37,17 +37,40 @@ costs nothing.
 ## What makes this lane different from a paid CLI delegate
 
 A paid delegate like Copilot CLI is itself agentic: it reads files, runs git,
-and applies its own diffs. `ollama run` is not agentic at all — it's a plain
-text-completion call with no filesystem or git access. That has two
-consequences:
+and applies its own diffs. This plugin's text mode (the default) is not
+agentic at all — it's a plain text-completion call to Ollama's HTTP API with
+no filesystem or git access. That has two consequences (both for text mode;
+the opt-in agentic mode below is the exception):
 
 - **No allow/deny flag set is needed.** There's nothing to sandbox, because
   the model literally cannot touch your repo. The `ollama-rescue` subagent
   just returns text.
-- **Nothing gets applied automatically.** Claude (the caller) has to read the
-  returned text and apply it via its own Edit/Write tools, after reviewing
-  it. Treat Ollama's output as a draft from a smaller, less reliable model —
-  not as an already-vetted diff the way a paid delegate's result might be.
+- **In text mode nothing gets applied automatically.** Claude (the caller) has
+  to read the returned text and apply it via its own Edit/Write tools, after
+  reviewing it. Treat Ollama's output as a draft from a smaller, less reliable
+  model — not as an already-vetted diff the way a paid delegate's result
+  might be.
+
+## Agentic mode (experimental, opt-in)
+
+`/ollama:rescue --agentic` (or an explicit request to the Codex skill) runs a
+headless Claude Code child against Ollama's Anthropic Messages API instead of
+the text completion call. It is opt-in only: never put it in a proactive
+delegation table and never pick it because a task needs repository files.
+
+- **Status.** Measured on 2026-09-10 (Ollama 0.33.3, 16 GB GPU):
+  `devstral-32k` and `qwen3.6-32k` answered with a greeting or a question
+  instead of calling tools in 4/4 runs. A task that really needs file edits is
+  better served by a bigger local model or a frontier lane.
+- **Edits are applied without review.** The child runs with
+  `--permission-mode acceptEdits`, so whatever it writes is already in your
+  working tree when the command returns. Start from a clean tree, then review
+  `git diff` (and `git status` for new files) before keeping anything.
+- **Trust.** MEDIUM-LOW: it comes from a small local model, and a run that
+  ends without touching any file means "did not act", not "done".
+- **Boundaries.** It runs in the foreground with `--disallowedTools
+  "Task,Agent,WebSearch,WebFetch"` (no recursive delegation, no web access)
+  and needs Ollama >= 0.33; `/ollama:setup` reports whether it is available.
 
 ## The default-delegate discipline
 
