@@ -62,6 +62,13 @@
   an "Agentic mode" section on its status, trust and review.
 - Added `tests/test_agentic_docs.py`: it checks those rules on the agent, the
   skill, the snippets and the delegation guide.
+- Added `tests/validate.py`, now the first step of `bash tests/run.sh`: it
+  checks that the three manifests parse, that their versions match each other
+  and the first release heading of this changelog, that the agent, skill and
+  commands have the frontmatter Claude Code needs, that `/ollama:rescue`
+  points at the agent by its real name, and that every bash block in the
+  agent, the skill and the commands passes `bash -n`. `bash tests/run.sh
+  --quick` runs only these checks.
 
 ## 0.2.0 — 2026-09-10
 
