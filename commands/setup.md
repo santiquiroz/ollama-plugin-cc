@@ -26,6 +26,22 @@ ollama list
 
 - If this errors with a connection failure (not just "no models"), the Ollama background service isn't running. Tell the user to start it (the Ollama desktop app starts it automatically on Windows/macOS; on Linux, `systemctl start ollama` or `ollama serve` in a separate terminal) and stop here.
 
+Step 2.2 — JSON tool for text mode
+
+The agent and skill build the request and parse Ollama's reply with the first
+tool they find among `jq`, `python3`/`python` and `node`. Run:
+
+```bash
+JSON_TOOL=none
+for tool in jq python3 python node; do
+  if "$tool" --version >/dev/null 2>&1; then JSON_TOOL=$tool; break; fi
+done
+echo "JSON tool: $JSON_TOOL"
+```
+
+- Report the tool it printed. `jq` is not required: Python or Node is enough.
+- If it prints `none`, text mode cannot run on this machine; tell the user to install any one of jq, Python or Node, and continue with the remaining checks.
+
 Step 2.5 — Anthropic API compatibility
 
 Run this preflight against a tag that is available locally (use the tag you
@@ -78,13 +94,12 @@ Step 4 — Smoke test
 Run against the HTTP API directly (this is also how `ollama-rescue` itself calls the model — see below for why):
 
 ```bash
-curl -s http://localhost:11434/api/generate \
-  -d '{"model":"ollama-rescue-mechanical","prompt":"Reply with exactly one word: ready","stream":false}' \
-  | jq -r '.response'
+curl -sS http://localhost:11434/api/generate \
+  -d '{"model":"ollama-rescue-mechanical","prompt":"Reply with exactly one word: ready","stream":false}'
 ```
 
-- Any coherent non-empty response (including a reasoning preamble followed by real content, which some models emit) counts as working. An empty response or a hard error means something is wrong with the built model — rerun Step 3.
-- If `curl`/`jq` aren't available, `ollama run ollama-rescue-mechanical "Reply with exactly one word: ready"` also works as a one-off manual check, but note that `ollama run` is an interactive-terminal tool and can leave ANSI/TTY control codes mixed into output on real tasks — the agent and skill in this plugin always use the API instead, never the CLI, to avoid that.
+- The reply is one JSON object, printed raw so this check needs no JSON tool. A coherent non-empty `response` field (including a reasoning preamble followed by real content, which some models emit) counts as working. An `error` field (e.g. `model ... not found`), an empty `response` or a curl error means something is wrong with the built model or the service — report the text verbatim and rerun Step 3.
+- If `curl` isn't available, `ollama run ollama-rescue-mechanical "Reply with exactly one word: ready"` also works as a one-off manual check, but note that `ollama run` is an interactive-terminal tool and can leave ANSI/TTY control codes mixed into output on real tasks — the agent and skill in this plugin always use the API instead, never the CLI, to avoid that.
 
 Step 5 — Report GPU/CPU offload
 
@@ -98,7 +113,8 @@ ollama ps
 
 Step 6 — Consolidated report
 
-Summarize in one short block: install state, service state, Anthropic API
+Summarize in one short block: install state, service state, JSON tool from
+Step 2.2 (or `none`), Anthropic API
 `sí/no`, whether agentic mode is available, `ollama-rescue-mechanical` present
 (and which base model it was built from), smoke-test result, and the GPU/CPU
 split from Step 5.

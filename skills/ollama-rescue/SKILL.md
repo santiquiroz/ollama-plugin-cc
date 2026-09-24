@@ -18,12 +18,61 @@ PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <task>
 OLLAMA_TASK_EOF
 )
-curl -s http://localhost:11434/api/generate \
-  -d "$(jq -n --arg model "ollama-rescue-mechanical" --arg prompt "$PROMPT" '{model:$model, prompt:$prompt, stream:false}')" \
-  | jq -r '.response'
+MODEL="ollama-rescue-mechanical"
+JQ_REPLY='. as $raw | ((try fromjson catch null) | if type == "object" then . else {} end) as $reply
+| if $reply.error then "OLLAMA_ERROR: \($reply.error)\n" | halt_error(1)
+  elif ($reply.response | type) == "string" then $reply.response
+  else "OLLAMA_ERROR: unexpected reply: \($raw)\n" | halt_error(1) end'
+PY_REPLY='
+import json, sys
+raw = sys.stdin.buffer.read().decode("utf-8", "replace")
+try:
+    reply = json.loads(raw)
+except ValueError:
+    reply = None
+reply = reply if isinstance(reply, dict) else {}
+if reply.get("error"):
+    sys.exit("OLLAMA_ERROR: " + str(reply["error"]))
+if not isinstance(reply.get("response"), str):
+    sys.exit("OLLAMA_ERROR: unexpected reply: " + raw)
+sys.stdout.buffer.write(reply["response"].encode("utf-8") + b"\n")
+'
+NODE_REPLY='
+const raw = require("fs").readFileSync(0, "utf8");
+let reply = null;
+try { reply = JSON.parse(raw); } catch {}
+if (!reply || typeof reply !== "object") reply = {};
+if (reply.error) { console.error("OLLAMA_ERROR: " + reply.error); process.exitCode = 1; }
+else if (typeof reply.response !== "string") { console.error("OLLAMA_ERROR: unexpected reply: " + raw); process.exitCode = 1; }
+else process.stdout.write(reply.response + "\n");
+'
+json_tool() {
+  for tool in jq python3 python node; do
+    "$tool" --version >/dev/null 2>&1 && { echo "$tool"; return 0; }
+  done
+  echo "OLLAMA_ERROR: jq, python or node is required to call the Ollama API" >&2
+  return 127
+}
+request_body() {
+  case "$JSON_TOOL" in
+    jq) jq -Rs --arg model "$MODEL" '{model: $model, prompt: ., stream: false}' ;;
+    node) node -e 'process.stdout.write(JSON.stringify({model: process.argv[1], prompt: require("fs").readFileSync(0, "utf8"), stream: false}))' "$MODEL" ;;
+    *) "$JSON_TOOL" -c 'import json, sys; sys.stdout.write(json.dumps({"model": sys.argv[1], "prompt": sys.stdin.buffer.read().decode("utf-8"), "stream": False}))' "$MODEL" ;;
+  esac
+}
+response_text() {
+  case "$JSON_TOOL" in
+    jq) jq -Rrs "$JQ_REPLY" ;;
+    node) node -e "$NODE_REPLY" ;;
+    *) "$JSON_TOOL" -c "$PY_REPLY" ;;
+  esac
+}
+set -o pipefail
+JSON_TOOL=$(json_tool) && printf '%s' "$PROMPT" | request_body \
+  | curl -sS http://localhost:11434/api/generate --data-binary @- | response_text
 ```
 
-Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines, never inside double quotes: the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let the shell execute or expand them. If the task contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. `jq -n --arg` then keeps the JSON body valid. `ollama run` is an interactive-terminal tool that can leave ANSI/TTY control codes mixed into stdout even when not attached to a real terminal (confirmed in practice: real output came back with escape codes woven through actual code, needing a cleanup pass) — the HTTP API returns clean JSON instead.
+Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines, never inside double quotes: the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let the shell execute or expand them. If the task contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. The JSON body is built and the reply parsed with the first available of `jq`, `python3`/`python` and `node`, so `jq` is not required. With `set -o pipefail` and `curl -sS`, failures are never silent: a connection error prints curl's message, a `{"error": ...}` body prints `OLLAMA_ERROR: <message>`, an empty or non-JSON body prints `OLLAMA_ERROR: unexpected reply: <body>`, and all of them exit non-zero. `ollama run` is an interactive-terminal tool that can leave ANSI/TTY control codes mixed into stdout even when not attached to a real terminal (confirmed in practice: real output came back with escape codes woven through actual code, needing a cleanup pass) — the HTTP API returns clean JSON instead.
 
 `ollama-rescue-mechanical` is a context-capped AND output-capped derivative model this plugin's setup builds via a small Modelfile (see `commands/setup.md` on the Claude Code side, or run the equivalent `ollama create` step manually — see the main README). Never call a raw pulled tag directly: most current coding models default to a huge native context window, and the resulting KV-cache overflows consumer VRAM, making the run far slower than it needs to be.
 
@@ -50,6 +99,7 @@ There is no quota to exhaust — Ollama is local and free. If the command fails,
 
 - **Connection refused**: the Ollama background service isn't running. Tell the user to start it, or run the setup steps in the main README.
 - **"model not found"**: `ollama-rescue-mechanical` hasn't been built yet. Point at the setup steps in the main README.
+- **`OLLAMA_ERROR: jq, python or node is required`**: none of the JSON tools is on `PATH`; nothing was sent. Install one of them.
 - **Slow/heavy CPU offload**: the base model is too large for the available VRAM even with the context cap. Suggest a smaller base model.
 
 Report the error text verbatim instead of retrying silently — the caller decides whether to fall back to another approach or take the task over directly.

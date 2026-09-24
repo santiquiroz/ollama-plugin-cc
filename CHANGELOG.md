@@ -12,7 +12,20 @@
   keeps the JSON valid.
 - Added `tests/test_quoting.py` (run with `bash tests/run.sh`): it renders
   every documented task template with a hostile task and checks, with shimmed
-  `curl`/`jq`/`claude` and no network, that the prompt arrives byte for byte.
+  `curl`/`claude` and no network, that the prompt arrives byte for byte.
+- Fix: text mode no longer hides Ollama failures or needs `jq`. The agent and
+  the Codex skill run with `set -o pipefail` and `curl -sS`, and build and
+  parse the JSON with the first available of `jq`, `python3`/`python` and
+  `node`. A `{"error": ...}` reply now prints `OLLAMA_ERROR: <message>` and
+  exits non-zero (it used to print `null` with exit 0), an unreachable server
+  prints curl's connection error and exits non-zero (it used to print nothing
+  with exit 0), and a machine without `jq` works as long as Python or Node is
+  installed.
+- `/ollama:setup` reports which JSON tool text mode will use, and its smoke
+  test prints the raw JSON reply instead of piping it to `jq`.
+- Added `tests/test_errors.py`: a fake Ollama (`http.server` on an ephemeral
+  127.0.0.1 port) checks the ok, error, non-JSON and closed-port cases with
+  `jq` hidden from `PATH`, once with Python and once with Node.
 
 ## 0.2.0 — 2026-09-10
 

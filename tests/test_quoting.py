@@ -28,18 +28,12 @@ capture() { printf '%s' "$2" > "$OUT/$1"; }
 curl() {
   while [ $# -gt 0 ]; do
     case "$1" in
-      -d) capture curl_body "$2"; shift 2 ;;
+      --data-binary) capture curl_body "$(cat)"; shift 2 ;;
       *api/tags*) printf '{"models":[{"name":"devstral-32k"}]}'; shift ;;
       *api/generate*) printf '{"response":"ok"}'; shift ;;
       *) shift ;;
     esac
   done
-}
-jq() {
-  [ "$1" = "-n" ] || { "$PYTHON_BIN" -c 'import json,sys;print(json.load(sys.stdin)["response"])'; return; }
-  shift
-  while [ "$1" = "--arg" ]; do capture "arg_$2" "$3"; shift 3; done
-  "$PYTHON_BIN" -c 'import json,sys,pathlib;d=pathlib.Path(sys.argv[1]);print(json.dumps({"model":(d/"arg_model").read_text(encoding="utf-8"),"prompt":(d/"arg_prompt").read_text(encoding="utf-8"),"stream":False}))' "$OUT"
 }
 claude() {
   while [ $# -gt 0 ]; do
@@ -77,7 +71,7 @@ def find_bash():
 def run_rendered(bash, script, out_dir):
     script_path = out_dir / "rendered.sh"
     script_path.write_bytes((SHIMS + script).encode("utf-8"))
-    env_prefix = {"OUT": out_dir.as_posix(), "PYTHON_BIN": Path(sys.executable).as_posix(), "TMPDIR": out_dir.as_posix()}
+    env_prefix = {"OUT": out_dir.as_posix(), "TMPDIR": out_dir.as_posix()}
     command = "export " + " ".join(f"{key}='{value}'" for key, value in env_prefix.items()) + f"; . '{script_path.as_posix()}'"
     return subprocess.run([bash, "-c", command], capture_output=True)
 

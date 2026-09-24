@@ -31,12 +31,61 @@ Forwarding rules:
   <task>
   OLLAMA_TASK_EOF
   )
-  curl -s http://localhost:11434/api/generate \
-    -d "$(jq -n --arg model "<model>" --arg prompt "$PROMPT" '{model:$model, prompt:$prompt, stream:false}')" \
-    | jq -r '.response'
+  MODEL="<model>"
+  JQ_REPLY='. as $raw | ((try fromjson catch null) | if type == "object" then . else {} end) as $reply
+  | if $reply.error then "OLLAMA_ERROR: \($reply.error)\n" | halt_error(1)
+    elif ($reply.response | type) == "string" then $reply.response
+    else "OLLAMA_ERROR: unexpected reply: \($raw)\n" | halt_error(1) end'
+  PY_REPLY='
+  import json, sys
+  raw = sys.stdin.buffer.read().decode("utf-8", "replace")
+  try:
+      reply = json.loads(raw)
+  except ValueError:
+      reply = None
+  reply = reply if isinstance(reply, dict) else {}
+  if reply.get("error"):
+      sys.exit("OLLAMA_ERROR: " + str(reply["error"]))
+  if not isinstance(reply.get("response"), str):
+      sys.exit("OLLAMA_ERROR: unexpected reply: " + raw)
+  sys.stdout.buffer.write(reply["response"].encode("utf-8") + b"\n")
+  '
+  NODE_REPLY='
+  const raw = require("fs").readFileSync(0, "utf8");
+  let reply = null;
+  try { reply = JSON.parse(raw); } catch {}
+  if (!reply || typeof reply !== "object") reply = {};
+  if (reply.error) { console.error("OLLAMA_ERROR: " + reply.error); process.exitCode = 1; }
+  else if (typeof reply.response !== "string") { console.error("OLLAMA_ERROR: unexpected reply: " + raw); process.exitCode = 1; }
+  else process.stdout.write(reply.response + "\n");
+  '
+  json_tool() {
+    for tool in jq python3 python node; do
+      "$tool" --version >/dev/null 2>&1 && { echo "$tool"; return 0; }
+    done
+    echo "OLLAMA_ERROR: jq, python or node is required to call the Ollama API" >&2
+    return 127
+  }
+  request_body() {
+    case "$JSON_TOOL" in
+      jq) jq -Rs --arg model "$MODEL" '{model: $model, prompt: ., stream: false}' ;;
+      node) node -e 'process.stdout.write(JSON.stringify({model: process.argv[1], prompt: require("fs").readFileSync(0, "utf8"), stream: false}))' "$MODEL" ;;
+      *) "$JSON_TOOL" -c 'import json, sys; sys.stdout.write(json.dumps({"model": sys.argv[1], "prompt": sys.stdin.buffer.read().decode("utf-8"), "stream": False}))' "$MODEL" ;;
+    esac
+  }
+  response_text() {
+    case "$JSON_TOOL" in
+      jq) jq -Rrs "$JQ_REPLY" ;;
+      node) node -e "$NODE_REPLY" ;;
+      *) "$JSON_TOOL" -c "$PY_REPLY" ;;
+    esac
+  }
+  set -o pipefail
+  JSON_TOOL=$(json_tool) && printf '%s' "$PROMPT" | request_body \
+    | curl -sS http://localhost:11434/api/generate --data-binary @- | response_text
   ```
 
-  Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines and never inside double quotes. Run the block without this list's two-space indentation: the task lines and the closing `OLLAMA_TASK_EOF` must start at column 0, or the heredoc never closes. The quoting matters because the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let bash execute or expand them. If the task itself contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. Building the JSON body with `jq -n --arg` (rather than string-interpolating the task into a JSON literal by hand) then keeps the JSON valid. `stream:false` returns one JSON object with the full response instead of a stream of partial-token objects.
+  Put the task text verbatim between the two `OLLAMA_TASK_EOF` lines and never inside double quotes. Run the block without this list's two-space indentation: the task lines and the closing `OLLAMA_TASK_EOF` must start at column 0, or the heredoc never closes. The quoting matters because the quoted heredoc passes backticks, `$VAR`, `$(...)`, quotes and newlines through literally, while double quotes would let bash execute or expand them. If the task itself contains a line that is exactly `OLLAMA_TASK_EOF`, pick another delimiter. The block builds and parses the JSON with the first tool it finds among `jq`, `python3`/`python` and `node` (never by string-interpolating the task into a JSON literal), so it works on machines without `jq`. `set -o pipefail` and `curl -sS` keep failures visible: a connection error prints curl's message and exits non-zero, a `{"error": ...}` body prints `OLLAMA_ERROR: <message>` and exits non-zero, and an empty or non-JSON body prints `OLLAMA_ERROR: unexpected reply: <body>`. `stream:false` returns one JSON object with the full response instead of a stream of partial-token objects.
 - **Do not use the `ollama run <model>` CLI for this** — it is an interactive-terminal tool that can emit ANSI/TTY control sequences (spinners, cursor movement) mixed into stdout even when not attached to a real terminal. Confirmed in practice: a real task's output came back with terminal escape codes woven through the actual code, requiring a separate cleanup pass before it was usable. The HTTP API returns clean JSON with no such artifacts.
 - Default model is `ollama-rescue-mechanical` (see this plugin's `commands/setup.md` for how it's created — a Modelfile-derived tag with context and output length capped to sane sizes). If the caller's prompt names a different model this plugin also sets up (e.g. a vision-capable one for a task referencing an image), use that instead.
 - **Never use a raw `ollama pull`-ed tag directly** (e.g. a bare `<model>:<size>` tag straight from the library). Most current coding models default to a very large native context window (100K-256K+ tokens); loading that by default reserves a KV-cache many times larger than the model's own weights, which overflows consumer VRAM and forces heavy CPU offload — the run becomes drastically slower without you having done anything wrong. Only use context-capped derivative tags (built via a small Modelfile with `PARAMETER num_ctx <N>` and `PARAMETER num_predict <N>`, see `commands/setup.md`). The output cap matters on its own: a hybrid-reasoning model can occasionally never converge on an answer (confirmed in practice — 1800+ tokens decoded and climbing on one request, at under 4 tok/s), which looks exactly like a hang without it.
@@ -47,7 +96,7 @@ Forwarding rules:
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, or do any follow-up work of your own.
 - Some Ollama models are hybrid-reasoning ("thinking") models and may emit a reasoning preamble before the actual answer, even via the API. Return the full response as-is regardless — do not try to strip it yourself, the caller extracts what it needs.
 - If output looks truncated, garbled, or clearly answers a different question than asked, return it anyway — do not retry, self-correct, or silently discard it. The caller decides whether to retry, escalate to a paid delegate, or take over.
-- If the call fails (connection refused, a JSON error body naming an unknown model, or any non-zero `curl` exit), return the error text verbatim instead of suppressing it. A connection-refused error almost always means the Ollama service isn't running; a "model not found" error means the expected tag hasn't been pulled/built yet (point at `/ollama:setup`). The caller decides whether to start the service, run setup, fall back to a paid delegate, or take over directly.
+- If the call fails (connection refused, an `OLLAMA_ERROR:` line such as a JSON error body naming an unknown model, or any other non-zero exit), return the error text verbatim instead of suppressing it. `OLLAMA_ERROR: jq, python or node is required` means the machine has none of the three JSON tools; nothing was sent to Ollama. A connection-refused error almost always means the Ollama service isn't running; a "model not found" error means the expected tag hasn't been pulled/built yet (point at `/ollama:setup`). The caller decides whether to start the service, run setup, fall back to a paid delegate, or take over directly.
 
 Agentic mode (EXPERIMENTAL):
 
