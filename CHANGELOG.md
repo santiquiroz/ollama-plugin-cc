@@ -37,6 +37,21 @@
 - Added `tests/test_model_resolution.py`: a fake `/api/tags` checks both modes
   of the agent and the skill for the four cases, plus that all four copies of
   the snippet are identical.
+- Fix: `/ollama:setup` declares every command its steps run in
+  `allowed-tools` (`curl`, `cat`, and `--version` probes of `jq`, `python3`,
+  `python` and `node`), so it no longer stops on permission prompts. The JSON
+  tool check spells out each probe instead of running `"$tool" --version`.
+- Fix: `/ollama:setup` reads the server version from `GET /api/version`
+  (0.33 or newer, compared numerically, so 0.9 is older than 0.33) and probes
+  `/v1/messages` only after `ollama-rescue-mechanical` exists. The old
+  preflight ran against a placeholder tag before the model was built and
+  reported every 404 as an old Ollama; the report now tells `no (Ollama
+  <version> is older than 0.33)` apart from `model not found`. The Modelfile
+  is written to `${TMPDIR:-/tmp}` instead of a hardcoded `/tmp`.
+- Added `tests/test_setup.py`: it extracts the commands from every bash block
+  in `commands/*.md` and checks them against `allowed-tools`, and runs the
+  version, probe and Modelfile steps against a fake Ollama with a shimmed
+  `ollama`.
 
 ## 0.2.0 — 2026-09-10
 
