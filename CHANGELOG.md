@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-26
 
 - Security fix: the agent, the Codex skill and both READMEs now pass the task
   text to the shell through a quoted heredoc (`PROMPT=$(cat <<'OLLAMA_TASK_EOF'
