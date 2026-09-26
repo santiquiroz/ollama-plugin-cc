@@ -142,4 +142,7 @@ VRAM (a 24B-30B class model in the 14-20GB range is a reasonable starting
 point on a 16GB-class GPU), pull it, then wrap it in a tiny Modelfile that
 pins `PARAMETER num_ctx` to a sane value — most current coding models default
 to a huge native context window that will otherwise overflow consumer VRAM
-and force heavy CPU offload on every call, even a one-line completion.
+and force heavy CPU offload on every call, even a one-line completion. The
+same Modelfile caps the output with `PARAMETER num_predict` (4096 by default
+in `/ollama:setup`): a hybrid-reasoning model can otherwise keep generating
+its reasoning trace without ever converging, which looks exactly like a hang.

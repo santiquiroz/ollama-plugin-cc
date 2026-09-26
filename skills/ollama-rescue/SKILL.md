@@ -131,6 +131,8 @@ repository directory in one foreground shell call (never background it) with
 a timeout of at least `600000` ms:
 
 ```bash
+CLAUDE_BIN=$(command -v claude 2>/dev/null || ls "$HOME/.local/bin/claude.exe" "$HOME/.local/bin/claude" 2>/dev/null | head -1)
+[ -n "$CLAUDE_BIN" ] || { echo "claude CLI not found"; exit 127; }
 PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <task text>
 OLLAMA_TASK_EOF
@@ -150,15 +152,22 @@ resolve_model() {
 }
 set -o pipefail
 MODEL=$(resolve_model "$MODEL_FLAG") || exit 1
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model "$MODEL" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX") || exit 1
+trap 'rm -rf "$ISO"' EXIT
+CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model "$MODEL" --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
 The task text is positional and goes through the same quoted heredoc as text
 mode, never inside double quotes (edits are auto-accepted, so an expanded
 backtick or `$(...)` would run commands); stdin is not read. The model comes
 from the same `resolve_model` as text mode (set `MODEL_FLAG` for `--model`).
-`--disallowedTools Task,Agent` is mandatory because
-the child reads the global `CLAUDE.md` and must not delegate recursively.
+`CLAUDE_CONFIG_DIR` points at an empty temporary directory so the child loads
+no global `CLAUDE.md`, hooks or plugins (a SessionStart hook was observed
+hijacking the small model's first answer) and needs no Anthropic login; the
+`trap` deletes it on exit. `command -v claude` can fail in Git Bash when
+`~/.local/bin` is not on `PATH`, hence the fallback. `--disallowedTools
+Task,Agent` is mandatory: the child must not delegate recursively, and the
+project's own `CLAUDE.md` (which still loads) may tell it to.
 Edits are auto-accepted, so review `git diff`; this is MEDIUM-LOW trust from a
 small local model. A mid-run kill is a false negative. Preflight
 `POST http://127.0.0.1:11434/v1/messages` first: HTTP 200 means Ollama

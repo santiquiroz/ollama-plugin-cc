@@ -95,26 +95,36 @@ availability fallback chain — live in
 
 This plugin has two modes. **Text mode** is the default for one-shot snippets:
 it calls Ollama's text completion API and returns draft text for Claude Code to
-review and apply. **Agentic mode** is for tasks that clearly need to read or
-edit repository files; a headless Claude Code child uses Ollama's native
-Anthropic Messages API and applies edits itself. Use `/ollama:rescue
---agentic` or choose it when the task needs repository context.
+review and apply. **Agentic mode** runs a headless Claude Code child against
+Ollama's native Anthropic Messages API, and the child applies edits itself. It
+runs only when you ask for it explicitly with `/ollama:rescue --agentic`; a
+task that needs repository files does not switch modes on its own.
 
 The exact command is:
 
 ```bash
+CLAUDE_BIN=$(command -v claude 2>/dev/null || ls "$HOME/.local/bin/claude.exe" "$HOME/.local/bin/claude" 2>/dev/null | head -1)
+[ -n "$CLAUDE_BIN" ] || { echo "claude CLI not found"; exit 127; }
+ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX") || exit 1
+trap 'rm -rf "$ISO"' EXIT
 PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <task text>
 OLLAMA_TASK_EOF
 )
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model <context-capped tag such as devstral-32k or ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
 The task is the positional argument; stdin is not read. It goes through a
 quoted heredoc rather than double quotes so backticks, `$VAR` and `$(...)` in
 the task reach the model literally instead of being run by the shell (the same
-applies to text mode). Use only context-capped
-tags ending in `-32k` or `-mechanical`. Preflight compatibility with:
+applies to text mode). `CLAUDE_CONFIG_DIR` points the child at an empty
+temporary directory, so it loads no global `CLAUDE.md`, hooks or plugins (a
+SessionStart hook was observed hijacking the small model's first answer) and
+needs no Anthropic login; the project's own `CLAUDE.md` still applies, and the
+`trap` deletes the directory on exit. `command -v claude` can fail in Git Bash
+when `~/.local/bin` is not on `PATH`, hence the fallback. Use only
+context-capped tags ending in `-32k` or `-mechanical`. Preflight compatibility
+with:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:11434/v1/messages -H 'content-type: application/json' -d '{"model":"<tag>","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
@@ -250,8 +260,8 @@ The same idea, for [Codex CLI](https://developers.openai.com/codex/): delegate
 mechanical work to a local Ollama model, so Codex's reasoning stays on the
 work only it can do. Ships as a Codex **skill**
 (`skills/ollama-rescue/SKILL.md`) instead of a subagent — Codex runs the
-forwarded `ollama run ...` command itself, since Codex has no separate
-subagent/Task layer.
+forwarded HTTP API call (`curl .../api/generate`) itself, since Codex has no
+separate subagent/Task layer.
 
 ### Requirements
 
@@ -288,9 +298,10 @@ your `AGENTS.md`.
 
 ### Safety model
 
-Same as the Claude Code side — see [Safety model](#safety-model) above.
-`ollama run` has no filesystem/git access regardless of which agent is
-calling it.
+Same as the Claude Code side — see [Safety model](#safety-model) above. In
+text mode the Ollama API call has no filesystem/git access regardless of which
+agent is calling it; the opt-in agentic mode is the exception, since its
+Claude Code child edits files itself.
 
 ## License
 

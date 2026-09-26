@@ -69,6 +69,22 @@
   points at the agent by its real name, and that every bash block in the
   agent, the skill and the commands passes `bash -n`. `bash tests/run.sh
   --quick` runs only these checks.
+- Docs: the agentic command in the Codex skill and both READMEs now matches
+  the agent's: it resolves the `claude` binary explicitly and runs the child
+  with an empty temporary `CLAUDE_CONFIG_DIR`. The published copies still ran
+  plain `claude` with the user's config, so hooks and the global `CLAUDE.md`
+  could hijack the child again, which 0.2.0 said was fixed. The agent and the
+  skill delete that directory with a `trap` on exit (the agent's `mktemp` used
+  to leave one behind per run), and no longer justify `--disallowedTools
+  Task,Agent` with the global `CLAUDE.md` the isolated child never loads. The
+  READMEs' Codex section no longer says the skill runs `ollama run`, and their
+  agentic intro no longer says to pick the mode when a task needs repository
+  context. `docs/delegation-guide.md` explains the `num_predict` cap.
+- Added `tests/test_doc_sync.py`: it checks those docs stay in sync and runs
+  every agentic block with a shimmed `claude` to confirm the child gets an
+  existing isolated config dir, the dir is gone afterwards and the child's
+  exit status is kept. `tests/validate.py` now also runs `bash -n` on the
+  READMEs' bash blocks.
 
 ## 0.2.0 — 2026-09-10
 

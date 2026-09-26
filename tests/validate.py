@@ -17,6 +17,8 @@ BASH_DOCS = [
     "skills/ollama-rescue/SKILL.md",
     "commands/rescue.md",
     "commands/setup.md",
+    "README.md",
+    "README.es.md",
 ]
 FENCE = re.compile(r"^( *)```bash\n(.*?)^\1```", re.MULTILINE | re.DOTALL)
 PLACEHOLDER = re.compile(r"<[a-z][^<>\n]*>")

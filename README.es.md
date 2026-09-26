@@ -100,27 +100,36 @@ están en [docs/delegation-guide.md](docs/delegation-guide.md).
 Este plugin tiene dos modos. El **modo de texto** es el predeterminado para
 snippets de una sola pasada: llama a la API de completado de texto de Ollama y
 devuelve texto borrador para que Claude Code lo revise y aplique. El **modo
-agéntico** sirve para tareas que necesitan leer o editar archivos del repo:
-un Claude Code sin interfaz usa la API Messages de Anthropic nativa de Ollama
-y aplica los cambios por sí mismo. Usá `/ollama:rescue --agentic` o elegilo
-cuando la tarea necesite contexto del repositorio.
+agéntico** lanza un Claude Code sin interfaz contra la API Messages de
+Anthropic nativa de Ollama, y ese hijo aplica los cambios por sí mismo. Solo
+corre cuando lo pedís explícitamente con `/ollama:rescue --agentic`; una tarea
+que necesita archivos del repositorio no cambia de modo por sí sola.
 
 El comando exacto es:
 
 ```bash
+CLAUDE_BIN=$(command -v claude 2>/dev/null || ls "$HOME/.local/bin/claude.exe" "$HOME/.local/bin/claude" 2>/dev/null | head -1)
+[ -n "$CLAUDE_BIN" ] || { echo "claude CLI not found"; exit 127; }
+ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX") || exit 1
+trap 'rm -rf "$ISO"' EXIT
 PROMPT=$(cat <<'OLLAMA_TASK_EOF'
 <texto de la tarea>
 OLLAMA_TASK_EOF
 )
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama claude -p "$PROMPT" --model <tag con contexto acotado como devstral-32k u ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
+CLAUDE_CONFIG_DIR="$ISO" ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_API_KEY=ollama ANTHROPIC_AUTH_TOKEN=ollama "$CLAUDE_BIN" -p "$PROMPT" --model <tag con contexto acotado como devstral-32k u ollama-rescue-mechanical> --permission-mode acceptEdits --disallowedTools "Task,Agent,WebSearch,WebFetch" --max-turns 40 --output-format text
 ```
 
 La tarea es el argumento posicional; no se lee stdin. Pasa por un heredoc entre
 comillas simples y no por comillas dobles, para que los backticks, `$VAR` y
 `$(...)` de la tarea lleguen literales al modelo en vez de ejecutarse en el
-shell (lo mismo vale para el modo texto). Usá únicamente tags con
-contexto acotado que terminen en `-32k` o `-mechanical`. Verificá la
-compatibilidad con:
+shell (lo mismo vale para el modo texto). `CLAUDE_CONFIG_DIR` apunta el hijo
+a un directorio temporal vacío, así no carga el `CLAUDE.md` global, ni hooks
+ni plugins (se observó un hook SessionStart secuestrando la primera respuesta
+del modelo chico) y no necesita login de Anthropic; el `CLAUDE.md` del propio
+proyecto sigue aplicando, y el `trap` borra el directorio al salir.
+`command -v claude` puede fallar en Git Bash cuando `~/.local/bin` no está en
+el `PATH`, de ahí el respaldo. Usá únicamente tags con contexto acotado que
+terminen en `-32k` o `-mechanical`. Verificá la compatibilidad con:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:11434/v1/messages -H 'content-type: application/json' -d '{"model":"<tag>","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
@@ -263,9 +272,9 @@ La misma idea, para [Codex CLI](https://developers.openai.com/codex/):
 delegar trabajo mecánico a un modelo local de Ollama, para que el
 razonamiento de Codex se dedique solo al trabajo que únicamente él puede
 hacer. Se distribuye como una **skill** de Codex
-(`skills/ollama-rescue/SKILL.md`) en vez de un subagente — Codex ejecuta el
-comando `ollama run ...` reenviado él mismo, ya que Codex no tiene una capa
-separada de subagente/Task.
+(`skills/ollama-rescue/SKILL.md`) en vez de un subagente — Codex ejecuta él
+mismo la llamada reenviada a la API HTTP (`curl .../api/generate`), ya que
+Codex no tiene una capa separada de subagente/Task.
 
 ### Requisitos
 
@@ -305,8 +314,10 @@ propias instrucciones, copiá el bloque de
 ### Modelo de seguridad
 
 Igual que en el lado de Claude Code — ver
-[Modelo de seguridad](#modelo-de-seguridad) arriba. `ollama run` no tiene
-acceso a filesystem/git sin importar qué agente lo llame.
+[Modelo de seguridad](#modelo-de-seguridad) arriba. En modo texto la llamada
+a la API de Ollama no tiene acceso a filesystem/git sin importar qué agente la
+haga; el modo agéntico opt-in es la excepción, porque su hijo de Claude Code
+edita archivos por sí mismo.
 
 ## Licencia
 

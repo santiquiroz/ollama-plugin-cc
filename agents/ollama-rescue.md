@@ -149,7 +149,8 @@ Agentic mode (EXPERIMENTAL):
   }
   set -o pipefail
   MODEL=$(resolve_model "$MODEL_FLAG") || exit 1
-  ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX")
+  ISO=$(mktemp -d "${TMPDIR:-/tmp}/ollama-rescue-cfg.XXXXXX") || exit 1
+  trap 'rm -rf "$ISO"' EXIT
   PROMPT=$(cat <<'OLLAMA_TASK_EOF'
   <task text>
   OLLAMA_TASK_EOF
@@ -163,7 +164,9 @@ Agentic mode (EXPERIMENTAL):
   no Anthropic login because the backend is Ollama. The project's own
   `CLAUDE.md` still applies. `command -v claude` can fail in Git Bash even
   when Claude Code is installed (`~/.local/bin` missing from PATH), hence the
-  explicit fallback. `resolve_model` is the same function as in text mode:
+  explicit fallback. The `trap` removes the temporary config directory when
+  the block exits, whatever the outcome, and keeps the child's exit status.
+  `resolve_model` is the same function as in text mode:
   `--model` (in `MODEL_FLAG`), then `ollama-rescue-mechanical`, then the first
   listed `-32k`/`-mechanical` tag, else `OLLAMA_ERROR` pointing at
   `/ollama:setup` before the child starts. A machine without
@@ -174,9 +177,9 @@ Agentic mode (EXPERIMENTAL):
   mode, never inside double quotes: this child runs with auto-accepted edits,
   so an expanded backtick or `$(...)` would run commands on the host.
   Use only context-capped model tags ending in `-32k` or `-mechanical`.
-  `--disallowedTools Task,Agent` is mandatory: the child reads the global
-  `CLAUDE.md` and must not delegate recursively. The full value above also
-  prevents web access.
+  `--disallowedTools Task,Agent` is mandatory: the child must not delegate
+  recursively, and the project's own `CLAUDE.md` (which still loads) may tell
+  it to. The full value above also prevents web access.
 - Edits are auto-accepted, so the caller must review `git diff` afterward.
   Agentic output is MEDIUM-LOW trust: it is produced by a small local model.
   Killing the command mid-run is a false negative, not evidence that the task
